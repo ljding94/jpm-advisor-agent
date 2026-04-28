@@ -1,0 +1,24 @@
+{
+  "name": "David Patel",
+  "age": 42,
+  "risk_tolerance": "moderate",
+  "assets": {
+    "equities": 350000,
+    "bonds": 100000,
+    "cash": 50000
+  },
+  "investments": [
+    {"name": "Total US stock market index", "asset_class": "equity", "value_usd": 220000},
+    {"name": "International equity fund",   "asset_class": "equity", "value_usd": 130000},
+    {"name": "Aggregate bond fund",         "asset_class": "bonds",  "value_usd": 100000},
+    {"name": "Emergency savings",           "asset_class": "cash",   "value_usd": 50000}
+  ],
+  "goals": [
+    "fund both kids' college in 7-10 years",
+    "retire at 60",
+    "maintain a balanced growth portfolio"
+  ],
+  "time_horizon_years": 18,
+  "annual_income": 185000,
+  "notes": "Software engineer. Two kids ages 8 and 11. Mortgage: $280K remaining. Spouse works part-time."
+}

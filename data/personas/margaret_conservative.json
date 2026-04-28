@@ -1,0 +1,24 @@
+{
+  "name": "Margaret Chen",
+  "age": 62,
+  "risk_tolerance": "conservative",
+  "assets": {
+    "bonds_cds": 510000,
+    "large_cap_stocks": 255000,
+    "cash": 85000
+  },
+  "investments": [
+    {"name": "10-yr Treasury bonds",  "asset_class": "bonds",  "value_usd": 300000},
+    {"name": "5-yr CDs ladder",       "asset_class": "cds",    "value_usd": 210000},
+    {"name": "S&P 500 index fund",    "asset_class": "equity", "value_usd": 255000},
+    {"name": "Money-market account",  "asset_class": "cash",   "value_usd": 85000}
+  ],
+  "goals": [
+    "preserve capital",
+    "generate ~$40K/yr income for the next 25 years",
+    "hedge against inflation and healthcare cost growth"
+  ],
+  "time_horizon_years": 25,
+  "annual_income": 24000,
+  "notes": "Recently retired teacher. No mortgage, no dependents at home. Top concerns: inflation, healthcare costs, outliving savings."
+}

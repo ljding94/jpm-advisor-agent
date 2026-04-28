@@ -12,3 +12,11 @@ Build trajectory for the LangGraph multi-agent financial advisor. Newest entries
 - Routing constraint: `AgentMessage` rejects illegal (sender, recipient) pairs (Analyst↔Client blocked).
 - `AdviceOutput` force-appends standard disclaimer if missing.
 - 17/17 schema tests pass (`tests/test_schemas.py`).
+
+## 2026-04-28 — Step 3: knowledge base + personas + ingestion
+- 6 finance markdown docs in `data/knowledge_base/` (asset allocation, risk tolerance, retirement, diversification, tax-advantaged accounts, emergency fund + insurance).
+- 3 persona JSONs in `data/personas/` (Margaret/David/Priya) — load and validate as `ClientProfile`.
+- `EmbeddingProvider` interface with `OpenRouterEmbeddings` and `LocalEmbeddings` (sentence-transformers).
+- `KnowledgeStore` (Chroma persistent) with chunker, `ingest_directory`, `similarity_search`.
+- CLI: `python -m src.tools.ingest`.
+- 28/28 tests pass (schemas + personas + knowledge store with FakeEmbedder).

@@ -1,0 +1,25 @@
+{
+  "name": "Priya Sharma",
+  "age": 28,
+  "risk_tolerance": "aggressive",
+  "assets": {
+    "equities": 102000,
+    "crypto": 12000,
+    "cash": 6000
+  },
+  "investments": [
+    {"name": "QQQ (Nasdaq-100)",        "asset_class": "equity", "value_usd": 45000},
+    {"name": "VTI (US total market)",   "asset_class": "equity", "value_usd": 35000},
+    {"name": "Individual growth stocks","asset_class": "equity", "value_usd": 22000},
+    {"name": "BTC + ETH",               "asset_class": "crypto", "value_usd": 12000},
+    {"name": "Checking account",        "asset_class": "cash",   "value_usd": 6000}
+  ],
+  "goals": [
+    "aggressive wealth accumulation",
+    "optional FIRE (Financial Independence, Retire Early) by age 45",
+    "max out 401(k) and Roth IRA every year"
+  ],
+  "time_horizon_years": 17,
+  "annual_income": 165000,
+  "notes": "Product manager at a tech startup. No dependents, no mortgage. High earning potential, equity-heavy compensation."
+}
