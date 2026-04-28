@@ -20,3 +20,9 @@ Build trajectory for the LangGraph multi-agent financial advisor. Newest entries
 - `KnowledgeStore` (Chroma persistent) with chunker, `ingest_directory`, `similarity_search`.
 - CLI: `python -m src.tools.ingest`.
 - 28/28 tests pass (schemas + personas + knowledge store with FakeEmbedder).
+
+## 2026-04-28 — Steps 4–5: web search + LLM/embedding providers
+- `WebSearchProvider` interface; `DDGSearchProvider` (DuckDuckGo) with retry, rate-limit, mockable; `FakeWebSearchProvider` for tests.
+- `LLMProvider` interface; `OpenRouterLLM` (OpenAI SDK pointed at OpenRouter, retried).
+- `EmbeddingProvider` already wired in step 3; added explicit get/fallback tests.
+- 6 web-search tests + 9 provider tests pass (43 total so far).
