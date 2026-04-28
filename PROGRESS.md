@@ -44,3 +44,10 @@ Build trajectory for the LangGraph multi-agent financial advisor. Newest entries
 - Bug found and fixed: limit enforcement moved entirely to the node wrapper; routing only checks status. Without this, hitting MAX_TURNS exited but didn't mark TERMINATED.
 - Integration tests: all three personas (Margaret/David/Priya) drive the graph to RESOLVED; MAX_TURNS termination path verified.
 - 111/111 tests pass.
+
+## 2026-04-28 — Step 14: main runner + transcript exporter
+- `src/observability/logger.py`: `TurnLogger` (Observer pattern) + `render_transcript`/`export_transcript`.
+- `src/main.py`: `--persona {margaret,david,priya}` (default david), `--all` for batch. Exits with a clear setup message if `OPENROUTER_API_KEY` is missing.
+- Generated real `examples/sample_conversation_<persona>.md` for all three personas (using FakeLLM offline since no API key was available; the runner uses real OpenRouter when the key is set).
+- Fixed: `AdviceOutput.disclaimers` field now uses `validate_default=True` so the standard disclaimer is auto-appended even when no disclaimers are passed.
+- 118/118 tests pass.
