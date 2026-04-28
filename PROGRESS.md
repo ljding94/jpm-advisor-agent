@@ -35,3 +35,12 @@ Build trajectory for the LangGraph multi-agent financial advisor. Newest entries
 - `RiskStrategy` (Strategy pattern): Conservative/Moderate/Aggressive with allocations + headline advice.
 - Guardrails: PII redaction (SSN/CC/account/email/phone), output filter (banned phrases, tickers, disclaimer), limits (turns/cost).
 - 79 tests pass total (schemas 17, personas 4, knowledge 7, web 6, providers 9, agents 21, strategies 11, guardrails 25, ingestion impl).
+
+## 2026-04-28 — Steps 12–13: graph + integration
+- `src/graph/state.py`: `AdvisorState` TypedDict + `ConversationStatus` enum + `initial_state`.
+- `src/graph/routing.py`: `route_next(state)` dispatches to client/advisor/analyst by last-message recipient; ends on RESOLVED/TERMINATED.
+- `src/graph/builder.py`: `build_graph()` wires LangGraph `StateGraph` with three nodes; per-node wrapper enforces hard limits and marks `status=TERMINATED`.
+- Bug found and fixed: when Advisor receives an analyst REPORT, it now immediately drafts advice in the same turn (previously left the conversation in an infinite advisor→advisor loop).
+- Bug found and fixed: limit enforcement moved entirely to the node wrapper; routing only checks status. Without this, hitting MAX_TURNS exited but didn't mark TERMINATED.
+- Integration tests: all three personas (Margaret/David/Priya) drive the graph to RESOLVED; MAX_TURNS termination path verified.
+- 111/111 tests pass.

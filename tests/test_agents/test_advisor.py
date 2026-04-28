@@ -95,10 +95,16 @@ def test_advisor_drafts_advice(david_profile, fake_llm):
     assert new_state["status"] is ConversationStatus.CONFIRM
 
 
-def test_advisor_after_report_advances_to_advise(david_profile, fake_llm):
+def test_advisor_after_report_drafts_advice(david_profile, fake_llm):
     advisor = AdvisorAgent(llm=fake_llm)
     state = initial_state(david_profile)
     state["status"] = ConversationStatus.ANALYZE
+    state["analyst_findings"] = AnalystReport(
+        query="q",
+        findings="balanced is fine",
+        sources=[Source(title="kb::doc.md")],
+        confidence=0.7,
+    )
     state["conversation_history"].append(
         AgentMessage(
             sender=AgentRole.ANALYST,
@@ -108,7 +114,12 @@ def test_advisor_after_report_advances_to_advise(david_profile, fake_llm):
         )
     )
     new_state = advisor.process(state)
-    assert new_state["status"] is ConversationStatus.ADVISE
+    # After receiving a REPORT, advisor immediately drafts advice for the client.
+    assert new_state["status"] is ConversationStatus.CONFIRM
+    assert new_state["draft_advice"] is not None
+    last = new_state["conversation_history"][-1]
+    assert last.recipient is AgentRole.CLIENT
+    assert last.message_type is MessageType.ADVICE
 
 
 def test_advisor_decision_falls_back_when_llm_returns_garbage(david_profile, fake_llm):

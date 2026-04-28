@@ -175,11 +175,12 @@ class AdvisorAgent(BaseAgent):
     # -------- after analyst report → draft advice next turn --------
 
     def _after_analyst_report(self, state: AdvisorState, last: AgentMessage) -> AdvisorState:
-        """When the Advisor receives a REPORT, transition to ADVISE."""
-        new_state: AdvisorState = {**state}
-        new_state["status"] = ConversationStatus.ADVISE
-        # We don't add a new message here; the next turn will draft advice.
-        return new_state
+        """When the Advisor receives a REPORT, immediately draft advice for the client."""
+        intermediate: AdvisorState = {**state, "status": ConversationStatus.ADVISE}
+        return self._apply_decision(
+            intermediate,
+            {"next_action": "draft_advice", "target": "client", "message": ""},
+        )
 
     # -------- advice synthesis --------
 
