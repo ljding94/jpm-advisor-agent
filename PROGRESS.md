@@ -51,3 +51,21 @@ Build trajectory for the LangGraph multi-agent financial advisor. Newest entries
 - Generated real `examples/sample_conversation_<persona>.md` for all three personas (using FakeLLM offline since no API key was available; the runner uses real OpenRouter when the key is set).
 - Fixed: `AdviceOutput.disclaimers` field now uses `validate_default=True` so the standard disclaimer is auto-appended even when no disclaimers are passed.
 - 118/118 tests pass.
+
+## 2026-04-28 — Steps 15–16: README + coverage check
+- README.md with mermaid architecture + state-machine diagrams, setup steps, sample snippet, design-pattern table (with file references), guardrail table, trade-offs, and future work.
+- Added ingest CLI smoke test.
+- **Final coverage: 93% (target ≥70%); 119/119 tests pass.**
+- Sample transcripts present for all three personas in `examples/`.
+
+## Acceptance criteria summary
+1. ✅ `pip install -r requirements.txt` succeeds in clean venv.
+2. ✅ `pytest --cov=src` passes with 93% coverage.
+3. ✅ `python -m src.main --persona <david|margaret|priya>` writes `examples/sample_conversation_<persona>.md`.
+4. ✅ All sample conversations show all three agents producing output and end RESOLVED.
+5. ✅ Test asserts Analyst→Client message raises validation error (`tests/test_schemas.py::test_analyst_to_client_rejected`).
+6. ✅ PII redaction test (`tests/test_guardrails/test_pii.py::test_pii_never_reaches_llm_via_base_agent`).
+7. ✅ Output filter tests for banned phrases + disclaimer enforcement.
+8. ✅ README contains mermaid diagram + Design Patterns section with file references.
+9. ✅ PROGRESS.md documents the build trajectory (this file).
+10. ✅ All git commits have descriptive messages; main is green.
