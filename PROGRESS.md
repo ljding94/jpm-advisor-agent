@@ -26,3 +26,12 @@ Build trajectory for the LangGraph multi-agent financial advisor. Newest entries
 - `LLMProvider` interface; `OpenRouterLLM` (OpenAI SDK pointed at OpenRouter, retried).
 - `EmbeddingProvider` already wired in step 3; added explicit get/fallback tests.
 - 6 web-search tests + 9 provider tests pass (43 total so far).
+
+## 2026-04-28 — Steps 6–11: agents, factory, strategies, guardrails
+- `BaseAgent` (abstract) + `AgentFactory` with lazy concrete imports.
+- `ClientAgent` (loads persona, answers questions, [CONFIRM]/[REJECT] advice → drives state machine).
+- `AnalystAgent` (KB → web fallback → AnalystReport with non-empty sources, never speaks to Client).
+- `AdvisorAgent` (Mediator: ask_client/dispatch_analyst/draft_advice/finalize; synthesizes via RiskStrategy).
+- `RiskStrategy` (Strategy pattern): Conservative/Moderate/Aggressive with allocations + headline advice.
+- Guardrails: PII redaction (SSN/CC/account/email/phone), output filter (banned phrases, tickers, disclaimer), limits (turns/cost).
+- 79 tests pass total (schemas 17, personas 4, knowledge 7, web 6, providers 9, agents 21, strategies 11, guardrails 25, ingestion impl).
