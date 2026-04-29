@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Literal
 
 from src.agents.base import BaseAgent
@@ -18,6 +19,19 @@ from src.schemas import (
     MessageType,
 )
 from src.strategies.risk_profile import RiskStrategy, get_strategy
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", flags=re.DOTALL)
+_JSON_OBJECT_RE = re.compile(r"\{.*\}", flags=re.DOTALL)
+
+
+def _extract_json_object(text: str) -> str | None:
+    """Pull the first JSON object out of `text`. Tolerates ```json fences and prose."""
+    fence = _JSON_FENCE_RE.search(text)
+    if fence:
+        return fence.group(1)
+    obj = _JSON_OBJECT_RE.search(text)
+    return obj.group(0) if obj else None
+
 
 ADVISOR_SYSTEM_PROMPT = """You are a financial advisor. You mediate between a Client and an Analyst.
 
@@ -91,11 +105,22 @@ class AdvisorAgent(BaseAgent):
     def _parse_decision_json(raw: str, state: AdvisorState) -> dict[str, Any]:
         raw = raw.strip()
         parse_error: str | None = None
+        # Try strict parse first; fall back to extracting the first {...} block
+        # so models that don't honor JSON mode (and wrap output in prose or
+        # ```json fences) still parse.
+        decoded: dict[str, Any] = {}
         try:
-            decoded = json.loads(raw) if raw else {}
-        except json.JSONDecodeError as exc:
-            decoded = {}
-            parse_error = f"advisor decision JSON malformed: {exc.msg}"
+            if raw:
+                decoded = json.loads(raw)
+        except json.JSONDecodeError:
+            extracted = _extract_json_object(raw)
+            if extracted is not None:
+                try:
+                    decoded = json.loads(extracted)
+                except json.JSONDecodeError as exc:
+                    parse_error = f"advisor decision JSON malformed: {exc.msg}"
+            else:
+                parse_error = "advisor decision JSON malformed: no JSON object found"
         action = decoded.get("next_action")
         if action not in {"ask_client", "dispatch_analyst", "draft_advice", "finalize"}:
             if parse_error is None and raw:

@@ -8,6 +8,7 @@ from typing import Any
 
 from tenacity import (
     retry,
+    retry_if_exception,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -132,12 +133,6 @@ class OpenRouterLLM(LLMProvider):
         self.cumulative_completion_tokens = 0
         self.cumulative_cost_usd = 0.0
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=0.5, min=0.5, max=4.0),
-        retry=retry_if_exception_type(Exception),
-    )
     def complete(
         self,
         messages: list[dict[str, str]],
@@ -146,6 +141,48 @@ class OpenRouterLLM(LLMProvider):
         temperature: float = 0.2,
         response_format: dict[str, Any] | None = None,
         timeout: float = 60.0,
+    ) -> str:
+        try:
+            return self._do_chat(
+                messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                response_format=response_format,
+                timeout=timeout,
+            )
+        except Exception as exc:
+            # Some OpenRouter free-tier providers (e.g. SiliconFlow routing
+            # for `tencent/hy3-preview:free`) reject `response_format` with a
+            # 400 "Json mode is not supported". The agents tolerate loose
+            # JSON in prose, so retry once without the constraint.
+            if response_format and _is_json_mode_unsupported(exc):
+                return self._do_chat(
+                    messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    response_format=None,
+                    timeout=timeout,
+                )
+            raise
+
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.5, min=0.5, max=4.0),
+        # Only retry transient errors. json-mode rejection is permanent — let
+        # the outer wrapper see it on the first try and do its no-RF fallback.
+        retry=retry_if_exception(
+            lambda e: isinstance(e, Exception) and not _is_json_mode_unsupported(e)
+        ),
+    )
+    def _do_chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int,
+        temperature: float,
+        response_format: dict[str, Any] | None,
+        timeout: float,
     ) -> str:
         kwargs: dict[str, Any] = {
             "model": self.model,
@@ -170,6 +207,26 @@ class OpenRouterLLM(LLMProvider):
             self._accumulate(self.last_usage)
         choice = resp.choices[0]
         return choice.message.content or ""
+
+
+def _is_json_mode_unsupported(exc: Exception) -> bool:
+    """Best-effort detection of provider 400s that reject `response_format`.
+
+    We match on the error string because the OpenAI SDK wraps OpenRouter's
+    upstream error verbatim. Examples we want to catch:
+      - "Json mode is not supported for this model."
+      - "response_format is not supported"
+    """
+    msg = str(exc).lower()
+    return any(
+        phrase in msg
+        for phrase in (
+            "json mode is not supported",
+            "response_format is not supported",
+            "response_format is unsupported",
+            '"code":20024',  # SiliconFlow's specific code for this
+        )
+    )
 
 
 def get_llm_provider() -> LLMProvider:

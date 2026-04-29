@@ -33,6 +33,65 @@ def test_estimate_cost_unknown_model_uses_default():
     assert abs(cost - 1.0) < 0.01
 
 
+def test_openrouter_falls_back_when_json_mode_unsupported(monkeypatch: pytest.MonkeyPatch):
+    """Some free-tier providers reject `response_format=json_object` with 400.
+
+    The provider must retry once without the constraint instead of failing.
+    """
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+    call_count = {"n": 0}
+
+    def _create(**kwargs):
+        call_count["n"] += 1
+        # First call: caller requested json mode → raise the upstream error.
+        if "response_format" in kwargs:
+            raise RuntimeError(
+                'Error code: 400 - {"error":{"message":"Json mode is not supported for this model.","code":400}}'
+            )
+        # Second call: no response_format → return a normal response.
+        fake_resp = MagicMock()
+        fake_resp.choices = [MagicMock(message=MagicMock(content='{"ok": true}'))]
+        fake_resp.usage = MagicMock(prompt_tokens=5, completion_tokens=3)
+        return fake_resp
+
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = _create
+
+    with patch("openai.OpenAI", return_value=fake_client):
+        llm = OpenRouterLLM(model="tencent/hy3-preview:free")
+    out = llm.complete(
+        [{"role": "user", "content": "hi"}],
+        response_format={"type": "json_object"},
+    )
+    assert out == '{"ok": true}'
+    assert call_count["n"] == 2  # one failed json-mode attempt + one successful retry
+
+
+def test_openrouter_does_not_swallow_unrelated_errors(monkeypatch: pytest.MonkeyPatch):
+    """Errors that aren't about JSON mode must still propagate."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    fake_client = MagicMock()
+    fake_client.chat.completions.create.side_effect = RuntimeError("rate limited")
+    with patch("openai.OpenAI", return_value=fake_client):
+        llm = OpenRouterLLM()
+    with pytest.raises(RuntimeError, match="rate limited"):
+        llm.complete([{"role": "user", "content": "hi"}],
+                     response_format={"type": "json_object"})
+
+
+def test_extract_json_object_handles_prose_and_fences():
+    """The advisor's parser must extract a JSON object from prose-wrapped output."""
+    from src.agents.advisor import _extract_json_object
+
+    assert _extract_json_object('{"a": 1}') == '{"a": 1}'
+    fenced = "Here:\n```json\n{\"x\": 2}\n```\nthanks"
+    assert _extract_json_object(fenced) == '{"x": 2}'
+    prose = "Sure! {\"next_action\": \"finalize\"} hope that helps."
+    assert _extract_json_object(prose) == '{"next_action": "finalize"}'
+    assert _extract_json_object("no json here") is None
+
+
 # --------------------- LLM provider ---------------------
 
 def _fake_openai_completion(content: str = '{"hello": "world"}'):

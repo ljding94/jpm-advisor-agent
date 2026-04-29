@@ -65,11 +65,17 @@ _OPENROUTER_PAID = [
 # override via the OPENROUTER_FREE_MODELS env var to match exactly the slugs
 # you've allowed on a restricted key.
 _OPENROUTER_FREE_DEFAULTS = [
-    "meta-llama/llama-3.1-8b-instruct:free",
-    "google/gemma-2-9b-it:free",
-    "mistralai/mistral-7b-instruct:free",
-    "qwen/qwen-2-7b-instruct:free",
+    "tencent/hy3-preview:free",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "minimax/minimax-m2.5:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
 ]
+
+# When the live fetch returns the full free list in arbitrary order, surface
+# this slug first so the dropdown's default is something the deployer's
+# restricted key actually has access to.
+_PREFERRED_DEFAULT_FREE = "tencent/hy3-preview:free"
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -107,6 +113,9 @@ def _openrouter_free_models() -> list[str]:
     live = _fetch_openrouter_models()
     free = [m for m in live if m.endswith(":free")]
     if free:
+        # Surface the preferred default first if it's available.
+        if _PREFERRED_DEFAULT_FREE in free:
+            free = [_PREFERRED_DEFAULT_FREE] + [m for m in free if m != _PREFERRED_DEFAULT_FREE]
         return free
     return list(_OPENROUTER_FREE_DEFAULTS)
 
