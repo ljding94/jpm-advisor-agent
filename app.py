@@ -165,6 +165,7 @@ def _render_sidebar() -> dict[str, Any]:
         "Mode",
         ["Watch persona run", "Human-in-loop", "Persona editor"],
         index=0,
+        key="mode_choice",
     )
 
     st.sidebar.markdown("---")
@@ -227,13 +228,6 @@ def _render_sidebar() -> dict[str, Any]:
     _apply_provider_selection(provider, model, api_key_input)
 
     st.sidebar.markdown("---")
-    persona = st.sidebar.selectbox(
-        "Persona",
-        list(PERSONA_FILES.keys()),
-        index=1,  # david
-        help="Built-in persona to use (ignored if you pick a custom one in the editor).",
-    )
-
     if st.session_state.custom_profile is not None:
         st.sidebar.success(
             f"Custom persona active: {st.session_state.custom_profile.name}"
@@ -244,9 +238,36 @@ def _render_sidebar() -> dict[str, Any]:
     # `key_ok` tells the modes whether they can enable the Run button.
     key_ok = (key_var is None) or bool(api_key_input) or bool(os.getenv(key_var, ""))
     return {
-        "mode": mode, "provider": provider, "model": model, "persona": persona,
+        "mode": mode, "provider": provider, "model": model,
         "key_ok": key_ok, "key_var": key_var,
     }
+
+
+def _persona_picker_with_edit() -> str:
+    """Render persona dropdown + 'Edit persona' button. Returns the chosen key.
+
+    The dropdown is keyed in session_state so it persists across reruns and
+    mode switches. The Edit button programmatically flips the sidebar mode
+    radio to 'Persona editor' so users can jump straight to it.
+    """
+    cols = st.columns([3, 1])
+    with cols[0]:
+        persona = st.selectbox(
+            "Persona",
+            list(PERSONA_FILES.keys()),
+            index=1,  # david
+            key="persona_choice",
+            help=(
+                "Pick a built-in persona. If you've activated a custom one in "
+                "the editor, that overrides this selection."
+            ),
+        )
+    with cols[1]:
+        st.markdown("<div style='height: 1.85rem'></div>", unsafe_allow_html=True)
+        if st.button("✏️ Edit persona", use_container_width=True):
+            st.session_state.mode_choice = "Persona editor"
+            st.rerun()
+    return persona
 
 
 def _resolve_profile(persona_key: str) -> ClientProfile:
@@ -506,12 +527,13 @@ def _start_human_run(persona_key: str) -> None:
 
 # ----------------- modes -----------------
 
-def _mode_watch(persona_key: str, *, key_ok: bool, key_var: str | None) -> None:
+def _mode_watch(*, key_ok: bool, key_var: str | None) -> None:
     st.title("Watch persona run")
     st.caption("Pick a persona, click Run, and watch all three agents collaborate.")
 
+    persona_key = _persona_picker_with_edit()
     profile = _resolve_profile(persona_key)
-    with st.expander("Persona", expanded=False):
+    with st.expander(f"View full profile ({profile.name})", expanded=False):
         st.json(profile.model_dump())
 
     holder = st.session_state.holder
@@ -554,12 +576,13 @@ def _mode_watch(persona_key: str, *, key_ok: bool, key_var: str | None) -> None:
         st.rerun()
 
 
-def _mode_human(persona_key: str, *, key_ok: bool, key_var: str | None) -> None:
+def _mode_human(*, key_ok: bool, key_var: str | None) -> None:
     st.title("Human-in-loop")
     st.caption("You type as the client. The Advisor and Analyst stay LLM-driven.")
 
+    persona_key = _persona_picker_with_edit()
     profile = _resolve_profile(persona_key)
-    with st.expander("Your client profile", expanded=False):
+    with st.expander(f"View full profile ({profile.name})", expanded=False):
         st.json(profile.model_dump())
 
     holder = st.session_state.holder
@@ -723,9 +746,9 @@ def main() -> None:
         st.session_state._prev_mode = sb["mode"]
 
     if sb["mode"] == "Watch persona run":
-        _mode_watch(sb["persona"], key_ok=sb["key_ok"], key_var=sb["key_var"])
+        _mode_watch(key_ok=sb["key_ok"], key_var=sb["key_var"])
     elif sb["mode"] == "Human-in-loop":
-        _mode_human(sb["persona"], key_ok=sb["key_ok"], key_var=sb["key_var"])
+        _mode_human(key_ok=sb["key_ok"], key_var=sb["key_var"])
     else:
         _mode_editor()
 
