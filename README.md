@@ -133,18 +133,10 @@ OpenRouter/OpenAI/Anthropic/Ollama against the same persona without restarting.
 
 ## Deployment
 
-The Streamlit app can be deployed publicly. Two safeguards are built in for
-public demos:
-
-1. **`APP_PASSWORD` gate.** Set the env var (or a Streamlit Cloud secret) and
-   the app shows a password screen before any agent code runs. Comparison is
-   timing-safe (`hmac.compare_digest`). Sign-out is in the sidebar.
-2. **Free-tier OpenRouter key.** Create a *separate* OpenRouter key with a
-   small credit limit and restrict it to the `:free` model variants
-   (Llama 3.1 8B, Gemma 2 9B, Mistral 7B, Qwen 2 7B — all in the curated
-   dropdown). On openrouter.ai → *Keys*, set "Credit limit" and add allowed
-   models. If a visitor pastes their own key in the sidebar, that overrides
-   the deployer's key for their session — they pay for their own usage.
+The Streamlit app can be deployed publicly. The OpenRouter key lives only in
+the deploy platform's secrets store — never in git, never visible to clients.
+Visitors who want to use a different model just paste their own key in the
+sidebar (it overrides the deployer's for that session).
 
 ### Streamlit Community Cloud (recommended)
 
@@ -152,11 +144,10 @@ public demos:
 2. Go to https://share.streamlit.io and pick this repo + `app.py`.
 3. In the app's *Settings → Secrets*, add:
    ```toml
-   APP_PASSWORD = "pick-a-strong-password"
-   OPENROUTER_API_KEY = "<your-restricted-free-tier-key>"
+   OPENROUTER_API_KEY = "<your-key>"
    LLM_PROVIDER = "openrouter"
-   LLM_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
-   EMBEDDING_PROVIDER = "local"  # avoid burning credits on embeddings
+   LLM_MODEL = "anthropic/claude-sonnet-4-6"
+   EMBEDDING_PROVIDER = "local"
    ```
 4. Click *Deploy*. ~2 minutes; the app rebuilds automatically on every push.
 
@@ -168,11 +159,12 @@ will work. Use the same env vars as above. For Cloudflare integration, run
 Streamlit on your own machine and front it with `cloudflared tunnel` — plain
 Cloudflare Pages/Workers can't host a Python server.
 
-### Cost protection beyond the password
+### Cost ceiling
 
-`MAX_TOTAL_COST_USD=$2.00` per conversation is enforced by the runtime
-regardless of provider. Combined with a $5–10/mo OpenRouter credit cap on the
-shared key, the worst-case bill for an open demo is bounded.
+Set a hard credit cap on the OpenRouter key in the dashboard (e.g. $30/mo).
+The runtime also enforces `MAX_TOTAL_COST_USD=$2.00` per conversation. Worst
+case for a public demo is the credit cap getting hit; further requests fail
+fast until the cap resets.
 
 ## Evaluation harness
 

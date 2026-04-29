@@ -11,7 +11,6 @@ A working LLM provider must be configured via env vars (see .env.example).
 """
 from __future__ import annotations
 
-import hmac
 import os
 import queue
 import threading
@@ -45,96 +44,45 @@ PROVIDER_OPTIONS = {
 
 # --------- model choices ---------
 
-# Paid OpenRouter models surfaced after the configured free-tier list.
-# Users with their own key can still pick these; users on the deployer's
-# restricted key will get a 403 from OpenRouter and should stick to the
-# free entries.
-_OPENROUTER_PAID = [
-    "anthropic/claude-sonnet-4-6",
-    "anthropic/claude-sonnet-4",
-    "anthropic/claude-opus-4-7",
-    "anthropic/claude-haiku-4-5",
-    "openai/gpt-4o",
-    "openai/gpt-4o-mini",
-    "openai/gpt-4.1",
-    "google/gemini-2.0-flash-001",
-    "meta-llama/llama-3.1-70b-instruct",
-]
-
-# Default free-tier slugs. OpenRouter's free roster rotates fairly often;
-# override via the OPENROUTER_FREE_MODELS env var to match exactly the slugs
-# you've allowed on a restricted key.
-_OPENROUTER_FREE_DEFAULTS = [
-    "tencent/hy3-preview:free",
-    "google/gemma-4-31b-it:free",
-    "google/gemma-4-26b-a4b-it:free",
-    "minimax/minimax-m2.5:free",
-    "nvidia/nemotron-3-super-120b-a12b:free",
-]
-
-# When the live fetch returns the full free list in arbitrary order, surface
-# this slug first so the dropdown's default is something the deployer's
-# restricted key actually has access to.
-_PREFERRED_DEFAULT_FREE = "tencent/hy3-preview:free"
-
-
-@st.cache_data(ttl=600, show_spinner=False)
-def _fetch_openrouter_models() -> list[str]:
-    """Fetch live model slugs from OpenRouter's public /models endpoint.
-
-    Cached for 10 min. Returns [] on failure (caller falls back to defaults).
-    No auth required for this endpoint.
-    """
-    import json as _json
-    import urllib.request as _urlreq
-
-    try:
-        with _urlreq.urlopen(
-            "https://openrouter.ai/api/v1/models", timeout=5
-        ) as resp:
-            data = _json.loads(resp.read())
-        return [m["id"] for m in data.get("data", []) if isinstance(m.get("id"), str)]
-    except Exception:
-        return []
-
-
-def _openrouter_free_models() -> list[str]:
-    """Free-tier OpenRouter slugs for the dropdown.
-
-    Order of precedence:
-    1. `OPENROUTER_FREE_MODELS` env var (comma-separated). Deployer pins the
-       exact allow-list of a restricted key.
-    2. Live fetch of OpenRouter's /models, filtered to slugs ending in `:free`.
-    3. Static defaults (may be stale — :free models rotate).
-    """
-    raw = os.getenv("OPENROUTER_FREE_MODELS", "").strip()
-    if raw:
-        return [s.strip() for s in raw.split(",") if s.strip()]
-    live = _fetch_openrouter_models()
-    free = [m for m in live if m.endswith(":free")]
-    if free:
-        # Surface the preferred default first if it's available.
-        if _PREFERRED_DEFAULT_FREE in free:
-            free = [_PREFERRED_DEFAULT_FREE] + [m for m in free if m != _PREFERRED_DEFAULT_FREE]
-        return free
-    return list(_OPENROUTER_FREE_DEFAULTS)
+# Curated, popular models per provider. First entry is the dropdown default.
+# Users can also pick "Other (custom id)…" to type any slug — including
+# `:free` variants if they want to experiment with free-tier models.
+_MODEL_CHOICES = {
+    "openrouter": [
+        "anthropic/claude-sonnet-4-6",
+        "anthropic/claude-opus-4-7",
+        "anthropic/claude-haiku-4-5",
+        "anthropic/claude-sonnet-4",
+        "openai/gpt-4o",
+        "openai/gpt-4o-mini",
+        "openai/gpt-4.1",
+        "google/gemini-2.0-flash-001",
+        "meta-llama/llama-3.1-70b-instruct",
+    ],
+    "openai": [
+        "gpt-4o-mini",
+        "gpt-4o",
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "o1-mini",
+    ],
+    "anthropic": [
+        "claude-sonnet-4-6",
+        "claude-opus-4-7",
+        "claude-haiku-4-5",
+        "claude-sonnet-4",
+    ],
+    "ollama": [
+        "llama3.1:8b",
+        "llama3.1:70b",
+        "qwen2.5:7b",
+        "mistral:7b",
+    ],
+}
 
 
 def _model_choices_for(provider: str) -> list[str]:
-    if provider == "openrouter":
-        return _openrouter_free_models() + _OPENROUTER_PAID
-    if provider == "openai":
-        return ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini", "o1-mini"]
-    if provider == "anthropic":
-        return [
-            "claude-sonnet-4-6",
-            "claude-opus-4-7",
-            "claude-haiku-4-5",
-            "claude-sonnet-4",
-        ]
-    if provider == "ollama":
-        return ["llama3.1:8b", "llama3.1:70b", "qwen2.5:7b", "mistral:7b"]
-    return []
+    return list(_MODEL_CHOICES.get(provider, []))
 
 # Per-provider env-var names so the sidebar can show / set the right credential.
 PROVIDER_KEY_ENV = {
@@ -291,13 +239,6 @@ def _render_sidebar() -> dict[str, Any]:
         if st.sidebar.button("Clear custom persona"):
             st.session_state.custom_profile = None
 
-    # Logout, only shown if a password gate is configured.
-    if _get_app_password() is not None and st.session_state.get("authed"):
-        st.sidebar.markdown("---")
-        if st.sidebar.button("Sign out"):
-            st.session_state.authed = False
-            st.rerun()
-
     # `key_ok` tells the modes whether they can enable the Run button.
     key_ok = (key_var is None) or bool(api_key_input) or bool(os.getenv(key_var, ""))
     return {
@@ -312,6 +253,17 @@ def _resolve_profile(persona_key: str) -> ClientProfile:
     return load_persona(persona_key)
 
 
+def _safe_md(text: str) -> str:
+    """Escape characters Streamlit's markdown renderer interprets specially.
+
+    Most importantly: a pair of `$` signs is treated as inline LaTeX math, which
+    mangles dollar amounts in LLM output (e.g. "$40K to $50K" becomes a math
+    block with each character on its own line). Escaping `$` to `\\$` fixes
+    this without breaking actual markdown formatting.
+    """
+    return text.replace("$", r"\$")
+
+
 def _render_transcript_from_holder() -> None:
     holder = st.session_state.holder
     transcript = holder.get("transcript", [])
@@ -324,7 +276,7 @@ def _render_transcript_from_holder() -> None:
             st.markdown(
                 f"**{m.sender.value} → {m.recipient.value}**  \n_{m.message_type.value}_"
             )
-            st.markdown(m.content)
+            st.markdown(_safe_md(m.content))
 
 
 def _render_meter() -> None:
@@ -348,12 +300,12 @@ def _render_advice(state: dict | None) -> None:
     st.markdown("## Final advice")
     st.markdown("**Recommendations**")
     for r in advice.recommendations:
-        st.markdown(f"- {r}")
-    st.markdown(f"**Rationale:** {advice.rationale}")
+        st.markdown(f"- {_safe_md(r)}")
+    st.markdown(f"**Rationale:** {_safe_md(advice.rationale)}")
     if advice.disclaimers:
         with st.expander("Disclaimers"):
             for d in advice.disclaimers:
-                st.markdown(f"- {d}")
+                st.markdown(f"- {_safe_md(d)}")
 
 
 def _start_persona_run(persona_key: str) -> None:
@@ -381,7 +333,10 @@ def _start_persona_run(persona_key: str) -> None:
     graph = runtime["graph"]
     state = client.open_conversation(state)
 
-    holder = {"running": True, "final_state": None, "transcript": [], "error": None}
+    holder = {
+        "running": True, "final_state": None, "transcript": [],
+        "error": None, "stop": False, "stopped": False,
+    }
     st.session_state.holder = holder
     st.session_state.ui_log = ui_log
 
@@ -389,11 +344,15 @@ def _start_persona_run(persona_key: str) -> None:
         try:
             # graph.stream yields one full state per node hop. We snapshot the
             # conversation_history into the shared holder so the main thread's
-            # next rerun reads the latest messages.
+            # next rerun reads the latest messages, and check the stop flag
+            # between yields for cooperative interruption.
             last_state = state
             for partial in graph.stream(
                 state, config={"recursion_limit": 80}, stream_mode="values"
             ):
+                if holder.get("stop"):
+                    holder["stopped"] = True
+                    break
                 last_state = partial
                 holder["transcript"] = list(partial.get("conversation_history", []))
             holder["final_state"] = last_state
@@ -430,7 +389,10 @@ def _start_human_run(persona_key: str) -> None:
     state = initial_state(profile)
     state = human_client.open_conversation(state)
 
-    holder = {"running": True, "final_state": None, "transcript": [], "error": None}
+    holder = {
+        "running": True, "final_state": None, "transcript": [],
+        "error": None, "stop": False, "stopped": False,
+    }
     st.session_state.holder = holder
     st.session_state.ui_log = ui_log
     st.session_state.client_prompts = prompts_out
@@ -443,6 +405,9 @@ def _start_human_run(persona_key: str) -> None:
             for partial in graph.stream(
                 state, config={"recursion_limit": 80}, stream_mode="values"
             ):
+                if holder.get("stop"):
+                    holder["stopped"] = True
+                    break
                 last_state = partial
                 holder["transcript"] = list(partial.get("conversation_history", []))
             holder["final_state"] = last_state
@@ -475,12 +440,20 @@ def _mode_watch(persona_key: str, *, key_ok: bool, key_var: str | None) -> None:
             "Without it, the LLM provider can't be reached."
         )
 
-    if st.button("Run", disabled=running or not key_ok, type="primary"):
-        _start_persona_run(persona_key)
-        st.rerun()
+    cols = st.columns([1, 1, 6])
+    with cols[0]:
+        if st.button("Run", disabled=running or not key_ok, type="primary"):
+            _start_persona_run(persona_key)
+            st.rerun()
+    with cols[1]:
+        if st.button("Stop", disabled=not running):
+            holder["stop"] = True
+            st.rerun()
 
     if holder.get("error"):
         st.error(f"Run failed: {holder['error']}")
+    elif holder.get("stopped") and not running:
+        st.warning("Stopped. Pick a different model and click Run to retry.")
 
     if running:
         st.info("Running… auto-refreshing.")
@@ -513,9 +486,20 @@ def _mode_human(persona_key: str, *, key_ok: bool, key_var: str | None) -> None:
             f"Paste your **{key_var}** in the sidebar before starting."
         )
 
-    if st.button("Start", disabled=running or not key_ok, type="primary"):
-        _start_human_run(persona_key)
-        st.rerun()
+    cols = st.columns([1, 1, 6])
+    with cols[0]:
+        if st.button("Start", disabled=running or not key_ok, type="primary"):
+            _start_human_run(persona_key)
+            st.rerun()
+    with cols[1]:
+        if st.button("Stop", disabled=not running):
+            holder["stop"] = True
+            st.rerun()
+
+    if holder.get("error"):
+        st.error(f"Run failed: {holder['error']}")
+    elif holder.get("stopped") and not running:
+        st.warning("Stopped.")
 
     if holder.get("error"):
         st.error(f"Run failed: {holder['error']}")
@@ -625,52 +609,9 @@ def _mode_editor() -> None:
                 st.error(f"Could not save: {exc}")
 
 
-def _get_app_password() -> str | None:
-    """Read APP_PASSWORD from Streamlit secrets or env. Empty/missing → no gate."""
-    try:
-        v = st.secrets.get("APP_PASSWORD")  # Streamlit Cloud injects this
-        if v:
-            return str(v)
-    except (FileNotFoundError, KeyError, AttributeError):
-        pass
-    return os.getenv("APP_PASSWORD") or None
-
-
-def _require_auth() -> bool:
-    """Render a password gate. Returns True when the request is authenticated.
-
-    No-op if APP_PASSWORD isn't set, so local dev works without configuration.
-    Uses hmac.compare_digest for timing-safe comparison.
-    """
-    expected = _get_app_password()
-    if not expected:
-        return True
-    if st.session_state.get("authed"):
-        return True
-
-    st.title("🔒 JPM Advisor")
-    st.caption(
-        "Gated demo — enter the access password to continue. "
-        "If you don't have one, you can still run this locally with "
-        "`streamlit run app.py`."
-    )
-    with st.form("auth"):
-        pw = st.text_input("Access password", type="password")
-        ok = st.form_submit_button("Enter")
-        if ok:
-            if hmac.compare_digest(pw, expected):
-                st.session_state.authed = True
-                st.rerun()
-            else:
-                st.error("Incorrect password.")
-    return False
-
-
 def main() -> None:
     st.set_page_config(page_title="JPM Advisor", page_icon="💼", layout="wide")
     _ensure_state()
-    if not _require_auth():
-        return
     sb = _render_sidebar()
 
     if sb["mode"] == "Watch persona run":

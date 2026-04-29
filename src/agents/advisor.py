@@ -78,10 +78,21 @@ class AdvisorAgent(BaseAgent):
 
     # -------- decision step --------
 
+    # Hard ceiling on consecutive ask_client turns before we force progress.
+    # Without this, weaker free models loop on the default ask_client fallback.
+    MAX_CONSECUTIVE_ASKS = 2
+
     def _decide(self, state: AdvisorState) -> dict[str, Any]:
         """Ask the LLM what to do next based on the state."""
         profile = state["client_profile"]
         history_text = self._format_history(state)
+        asks_so_far = self._count_recent_advisor_questions(state)
+        guidance = (
+            ""
+            if asks_so_far < self.MAX_CONSECUTIVE_ASKS
+            else "\nNOTE: you have already asked enough questions. "
+                 "Pick `dispatch_analyst` now — do NOT ask another question.\n"
+        )
         prompt = (
             "Decide the advisor's next action.\n\n"
             f"Client profile:\n{profile.model_dump_json(indent=2)}\n\n"
@@ -91,6 +102,8 @@ class AdvisorAgent(BaseAgent):
             "  - dispatch_analyst: send a research task to the analyst.\n"
             "  - draft_advice: synthesize recommendations directly.\n"
             "  - finalize: present already-drafted advice for confirmation.\n\n"
+            "Heuristic: after 1–2 ask_client turns, dispatch_analyst.\n"
+            f"{guidance}"
             "Reply ONLY with JSON of shape "
             '{"next_action": "...", "target": "client|analyst|none", "message": "..."}.'
         )
@@ -99,7 +112,47 @@ class AdvisorAgent(BaseAgent):
             max_tokens=500,
             response_format={"type": "json_object"},
         )
-        return self._parse_decision_json(raw, state=state)
+        decision = self._parse_decision_json(raw, state=state)
+
+        # Circuit breaker: if the LLM keeps picking ask_client past the limit,
+        # override to dispatch_analyst so the state machine progresses.
+        if (
+            decision["next_action"] == "ask_client"
+            and asks_so_far >= self.MAX_CONSECUTIVE_ASKS
+        ):
+            append_error(
+                state,
+                source="advisor",
+                detail=f"forced dispatch_analyst after {asks_so_far} ask_client turns",
+            )
+            decision = {
+                "next_action": "dispatch_analyst",
+                "target": "analyst",
+                "message": (
+                    "Based on the client's profile and stated goals, recommend a "
+                    "balanced portfolio appropriate to their risk tolerance and time "
+                    "horizon, including target asset allocation and tax-advantaged "
+                    "account guidance."
+                ),
+            }
+        return decision
+
+    @staticmethod
+    def _count_recent_advisor_questions(state: AdvisorState) -> int:
+        """Count consecutive QUESTION messages from advisor → client at the tail of history.
+
+        Resets on any message of a different type from the advisor (e.g. ADVICE,
+        TASK), so this measures "questions in the current ask_client streak".
+        """
+        history = list(state.get("conversation_history", []))
+        n = 0
+        for msg in reversed(history):
+            if msg.sender is AgentRole.ADVISOR:
+                if msg.message_type is MessageType.QUESTION:
+                    n += 1
+                else:
+                    break
+        return n
 
     @staticmethod
     def _parse_decision_json(raw: str, state: AdvisorState) -> dict[str, Any]:
