@@ -64,6 +64,11 @@ DEFAULT_PRICE = (1.00, 3.00)  # cautious fallback for unknown models
 
 
 def estimate_cost_usd(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    # OpenRouter `:free` slugs are zero-cost — they're routed to providers that
+    # accept training-rights as payment. Without this short-circuit, unknown
+    # `:free` slugs fall through to DEFAULT_PRICE and show a phantom cost.
+    if model.endswith(":free"):
+        return 0.0
     in_price, out_price = MODEL_PRICES.get(model, DEFAULT_PRICE)
     return (prompt_tokens / 1_000_000.0) * in_price + (completion_tokens / 1_000_000.0) * out_price
 

@@ -131,6 +131,49 @@ Provider and model can be switched live from the sidebar — the app writes to
 the relevant env vars before constructing the LLM, so you can A/B
 OpenRouter/OpenAI/Anthropic/Ollama against the same persona without restarting.
 
+## Deployment
+
+The Streamlit app can be deployed publicly. Two safeguards are built in for
+public demos:
+
+1. **`APP_PASSWORD` gate.** Set the env var (or a Streamlit Cloud secret) and
+   the app shows a password screen before any agent code runs. Comparison is
+   timing-safe (`hmac.compare_digest`). Sign-out is in the sidebar.
+2. **Free-tier OpenRouter key.** Create a *separate* OpenRouter key with a
+   small credit limit and restrict it to the `:free` model variants
+   (Llama 3.1 8B, Gemma 2 9B, Mistral 7B, Qwen 2 7B — all in the curated
+   dropdown). On openrouter.ai → *Keys*, set "Credit limit" and add allowed
+   models. If a visitor pastes their own key in the sidebar, that overrides
+   the deployer's key for their session — they pay for their own usage.
+
+### Streamlit Community Cloud (recommended)
+
+1. Push the repo to GitHub (already done).
+2. Go to https://share.streamlit.io and pick this repo + `app.py`.
+3. In the app's *Settings → Secrets*, add:
+   ```toml
+   APP_PASSWORD = "pick-a-strong-password"
+   OPENROUTER_API_KEY = "<your-restricted-free-tier-key>"
+   LLM_PROVIDER = "openrouter"
+   LLM_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+   EMBEDDING_PROVIDER = "local"  # avoid burning credits on embeddings
+   ```
+4. Click *Deploy*. ~2 minutes; the app rebuilds automatically on every push.
+
+### Self-host (Render / Fly.io / VPS)
+
+The app is a plain Python process — `streamlit run app.py --server.port $PORT`.
+Any platform that runs a long-lived Python container with WebSocket support
+will work. Use the same env vars as above. For Cloudflare integration, run
+Streamlit on your own machine and front it with `cloudflared tunnel` — plain
+Cloudflare Pages/Workers can't host a Python server.
+
+### Cost protection beyond the password
+
+`MAX_TOTAL_COST_USD=$2.00` per conversation is enforced by the runtime
+regardless of provider. Combined with a $5–10/mo OpenRouter credit cap on the
+shared key, the worst-case bill for an open demo is bounded.
+
 ## Evaluation harness
 
 ```bash

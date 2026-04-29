@@ -11,6 +11,7 @@ A working LLM provider must be configured via env vars (see .env.example).
 """
 from __future__ import annotations
 
+import hmac
 import os
 import queue
 import threading
@@ -42,40 +43,89 @@ PROVIDER_OPTIONS = {
     "ollama": "Ollama (local, no key)",
 }
 
-# Curated model lists per provider. Users can still pick "Other..." to type
-# a custom id. Keep the first item as the default.
-MODEL_CHOICES = {
-    "openrouter": [
-        "anthropic/claude-sonnet-4-6",
-        "anthropic/claude-sonnet-4",
-        "anthropic/claude-opus-4-7",
-        "anthropic/claude-haiku-4-5",
-        "openai/gpt-4o",
-        "openai/gpt-4o-mini",
-        "openai/gpt-4.1",
-        "google/gemini-2.0-flash-001",
-        "meta-llama/llama-3.1-70b-instruct",
-    ],
-    "openai": [
-        "gpt-4o-mini",
-        "gpt-4o",
-        "gpt-4.1",
-        "gpt-4.1-mini",
-        "o1-mini",
-    ],
-    "anthropic": [
-        "claude-sonnet-4-6",
-        "claude-opus-4-7",
-        "claude-haiku-4-5",
-        "claude-sonnet-4",
-    ],
-    "ollama": [
-        "llama3.1:8b",
-        "llama3.1:70b",
-        "qwen2.5:7b",
-        "mistral:7b",
-    ],
-}
+# --------- model choices ---------
+
+# Paid OpenRouter models surfaced after the configured free-tier list.
+# Users with their own key can still pick these; users on the deployer's
+# restricted key will get a 403 from OpenRouter and should stick to the
+# free entries.
+_OPENROUTER_PAID = [
+    "anthropic/claude-sonnet-4-6",
+    "anthropic/claude-sonnet-4",
+    "anthropic/claude-opus-4-7",
+    "anthropic/claude-haiku-4-5",
+    "openai/gpt-4o",
+    "openai/gpt-4o-mini",
+    "openai/gpt-4.1",
+    "google/gemini-2.0-flash-001",
+    "meta-llama/llama-3.1-70b-instruct",
+]
+
+# Default free-tier slugs. OpenRouter's free roster rotates fairly often;
+# override via the OPENROUTER_FREE_MODELS env var to match exactly the slugs
+# you've allowed on a restricted key.
+_OPENROUTER_FREE_DEFAULTS = [
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "google/gemma-2-9b-it:free",
+    "mistralai/mistral-7b-instruct:free",
+    "qwen/qwen-2-7b-instruct:free",
+]
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_openrouter_models() -> list[str]:
+    """Fetch live model slugs from OpenRouter's public /models endpoint.
+
+    Cached for 10 min. Returns [] on failure (caller falls back to defaults).
+    No auth required for this endpoint.
+    """
+    import json as _json
+    import urllib.request as _urlreq
+
+    try:
+        with _urlreq.urlopen(
+            "https://openrouter.ai/api/v1/models", timeout=5
+        ) as resp:
+            data = _json.loads(resp.read())
+        return [m["id"] for m in data.get("data", []) if isinstance(m.get("id"), str)]
+    except Exception:
+        return []
+
+
+def _openrouter_free_models() -> list[str]:
+    """Free-tier OpenRouter slugs for the dropdown.
+
+    Order of precedence:
+    1. `OPENROUTER_FREE_MODELS` env var (comma-separated). Deployer pins the
+       exact allow-list of a restricted key.
+    2. Live fetch of OpenRouter's /models, filtered to slugs ending in `:free`.
+    3. Static defaults (may be stale — :free models rotate).
+    """
+    raw = os.getenv("OPENROUTER_FREE_MODELS", "").strip()
+    if raw:
+        return [s.strip() for s in raw.split(",") if s.strip()]
+    live = _fetch_openrouter_models()
+    free = [m for m in live if m.endswith(":free")]
+    if free:
+        return free
+    return list(_OPENROUTER_FREE_DEFAULTS)
+
+
+def _model_choices_for(provider: str) -> list[str]:
+    if provider == "openrouter":
+        return _openrouter_free_models() + _OPENROUTER_PAID
+    if provider == "openai":
+        return ["gpt-4o-mini", "gpt-4o", "gpt-4.1", "gpt-4.1-mini", "o1-mini"]
+    if provider == "anthropic":
+        return [
+            "claude-sonnet-4-6",
+            "claude-opus-4-7",
+            "claude-haiku-4-5",
+            "claude-sonnet-4",
+        ]
+    if provider == "ollama":
+        return ["llama3.1:8b", "llama3.1:70b", "qwen2.5:7b", "mistral:7b"]
+    return []
 
 # Per-provider env-var names so the sidebar can show / set the right credential.
 PROVIDER_KEY_ENV = {
@@ -169,7 +219,8 @@ def _render_sidebar() -> dict[str, Any]:
 
     # Model picker: dropdown of common ids per provider, plus "Other...".
     OTHER = "Other (custom id)…"
-    choices = MODEL_CHOICES[provider] + [OTHER]
+    base_choices = _model_choices_for(provider)
+    choices = base_choices + [OTHER]
     selected = st.sidebar.selectbox(
         "Model",
         choices,
@@ -181,9 +232,9 @@ def _render_sidebar() -> dict[str, Any]:
         model = st.sidebar.text_input(
             "Custom model id",
             value="",
-            placeholder=MODEL_CHOICES[provider][0],
+            placeholder=base_choices[0] if base_choices else "",
             key=f"custom_model_{provider}",
-        ).strip() or MODEL_CHOICES[provider][0]
+        ).strip() or (base_choices[0] if base_choices else "")
     else:
         model = selected
 
@@ -231,7 +282,19 @@ def _render_sidebar() -> dict[str, Any]:
         if st.sidebar.button("Clear custom persona"):
             st.session_state.custom_profile = None
 
-    return {"mode": mode, "provider": provider, "model": model, "persona": persona}
+    # Logout, only shown if a password gate is configured.
+    if _get_app_password() is not None and st.session_state.get("authed"):
+        st.sidebar.markdown("---")
+        if st.sidebar.button("Sign out"):
+            st.session_state.authed = False
+            st.rerun()
+
+    # `key_ok` tells the modes whether they can enable the Run button.
+    key_ok = (key_var is None) or bool(api_key_input) or bool(os.getenv(key_var, ""))
+    return {
+        "mode": mode, "provider": provider, "model": model, "persona": persona,
+        "key_ok": key_ok, "key_var": key_var,
+    }
 
 
 def _resolve_profile(persona_key: str) -> ClientProfile:
@@ -286,12 +349,23 @@ def _render_advice(state: dict | None) -> None:
 
 def _start_persona_run(persona_key: str) -> None:
     profile = _resolve_profile(persona_key)
+
+    # Build the LLM in the main thread so we can show errors in the UI.
+    # build_runtime would otherwise call sys.exit on missing creds — fine
+    # for the CLI, fatal for Streamlit.
+    try:
+        llm = get_llm_provider()
+    except Exception as exc:  # noqa: BLE001
+        st.session_state.holder = {
+            "running": False, "final_state": None, "transcript": [],
+            "error": f"LLM init failed: {exc}",
+        }
+        return
+
     state = initial_state(profile)
-
     ui_log = UITurnLogger()
-
     runtime = build_runtime(
-        profile, verbose=False, turn_logger=ui_log,
+        profile, llm=llm, verbose=False, turn_logger=ui_log,
         web=DDGSearchProvider(),
     )
     client = runtime["client"]
@@ -375,7 +449,7 @@ def _start_human_run(persona_key: str) -> None:
 
 # ----------------- modes -----------------
 
-def _mode_watch(persona_key: str) -> None:
+def _mode_watch(persona_key: str, *, key_ok: bool, key_var: str | None) -> None:
     st.title("Watch persona run")
     st.caption("Pick a persona, click Run, and watch all three agents collaborate.")
 
@@ -386,7 +460,13 @@ def _mode_watch(persona_key: str) -> None:
     holder = st.session_state.holder
     running = bool(holder.get("running"))
 
-    if st.button("Run", disabled=running, type="primary"):
+    if not key_ok and key_var:
+        st.warning(
+            f"Paste your **{key_var}** in the sidebar before running. "
+            "Without it, the LLM provider can't be reached."
+        )
+
+    if st.button("Run", disabled=running or not key_ok, type="primary"):
         _start_persona_run(persona_key)
         st.rerun()
 
@@ -408,7 +488,7 @@ def _mode_watch(persona_key: str) -> None:
         st.rerun()
 
 
-def _mode_human(persona_key: str) -> None:
+def _mode_human(persona_key: str, *, key_ok: bool, key_var: str | None) -> None:
     st.title("Human-in-loop")
     st.caption("You type as the client. The Advisor and Analyst stay LLM-driven.")
 
@@ -419,7 +499,12 @@ def _mode_human(persona_key: str) -> None:
     holder = st.session_state.holder
     running = bool(holder.get("running"))
 
-    if st.button("Start", disabled=running, type="primary"):
+    if not key_ok and key_var:
+        st.warning(
+            f"Paste your **{key_var}** in the sidebar before starting."
+        )
+
+    if st.button("Start", disabled=running or not key_ok, type="primary"):
         _start_human_run(persona_key)
         st.rerun()
 
@@ -531,15 +616,58 @@ def _mode_editor() -> None:
                 st.error(f"Could not save: {exc}")
 
 
+def _get_app_password() -> str | None:
+    """Read APP_PASSWORD from Streamlit secrets or env. Empty/missing → no gate."""
+    try:
+        v = st.secrets.get("APP_PASSWORD")  # Streamlit Cloud injects this
+        if v:
+            return str(v)
+    except (FileNotFoundError, KeyError, AttributeError):
+        pass
+    return os.getenv("APP_PASSWORD") or None
+
+
+def _require_auth() -> bool:
+    """Render a password gate. Returns True when the request is authenticated.
+
+    No-op if APP_PASSWORD isn't set, so local dev works without configuration.
+    Uses hmac.compare_digest for timing-safe comparison.
+    """
+    expected = _get_app_password()
+    if not expected:
+        return True
+    if st.session_state.get("authed"):
+        return True
+
+    st.title("🔒 JPM Advisor")
+    st.caption(
+        "Gated demo — enter the access password to continue. "
+        "If you don't have one, you can still run this locally with "
+        "`streamlit run app.py`."
+    )
+    with st.form("auth"):
+        pw = st.text_input("Access password", type="password")
+        ok = st.form_submit_button("Enter")
+        if ok:
+            if hmac.compare_digest(pw, expected):
+                st.session_state.authed = True
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
+    return False
+
+
 def main() -> None:
     st.set_page_config(page_title="JPM Advisor", page_icon="💼", layout="wide")
     _ensure_state()
+    if not _require_auth():
+        return
     sb = _render_sidebar()
 
     if sb["mode"] == "Watch persona run":
-        _mode_watch(sb["persona"])
+        _mode_watch(sb["persona"], key_ok=sb["key_ok"], key_var=sb["key_var"])
     elif sb["mode"] == "Human-in-loop":
-        _mode_human(sb["persona"])
+        _mode_human(sb["persona"], key_ok=sb["key_ok"], key_var=sb["key_var"])
     else:
         _mode_editor()
 

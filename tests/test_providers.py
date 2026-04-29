@@ -12,7 +12,25 @@ from src.providers.embeddings import (
     OpenRouterEmbeddings,
     get_embedding_provider,
 )
-from src.providers.llm import LLMProvider, OpenRouterLLM, get_llm_provider
+from src.providers.llm import LLMProvider, OpenRouterLLM, estimate_cost_usd, get_llm_provider
+
+
+def test_estimate_cost_free_slug_is_zero():
+    # OpenRouter `:free` slugs always cost $0, regardless of token count.
+    assert estimate_cost_usd("google/gemma-4-31b-it:free", 100_000, 50_000) == 0.0
+    assert estimate_cost_usd("nvidia/nemotron-3-super-120b-a12b:free", 1_000, 1_000) == 0.0
+
+
+def test_estimate_cost_known_paid_model():
+    # claude-sonnet-4 is $3/1M in, $15/1M out → 1M+1M ≈ $18.
+    cost = estimate_cost_usd("anthropic/claude-sonnet-4", 1_000_000, 1_000_000)
+    assert abs(cost - 18.0) < 0.01
+
+
+def test_estimate_cost_unknown_model_uses_default():
+    # Falls back to DEFAULT_PRICE (1, 3) per 1M.
+    cost = estimate_cost_usd("vendor/unknown-model", 1_000_000, 0)
+    assert abs(cost - 1.0) < 0.01
 
 
 # --------------------- LLM provider ---------------------
