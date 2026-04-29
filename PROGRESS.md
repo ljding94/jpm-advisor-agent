@@ -77,3 +77,20 @@ Build trajectory for the LangGraph multi-agent financial advisor. Newest entries
 - Chromadb posthog telemetry silenced: `ANONYMIZED_TELEMETRY=False` env var + `Settings(anonymized_telemetry=False)` + logger downgrade to CRITICAL.
 - Verified live runs against OpenRouter for `david` and `priya` personas: clean output, all three agents speaking, RESOLVED status. Priya's conversation included two rejection rounds — the state machine looped back through ANALYZE as designed.
 - 119/119 tests still pass.
+
+## 2026-04-28 — Spec audit: known gaps + plan
+Audited the project against SPEC.md. All 10 acceptance criteria pass. Outstanding gaps:
+
+**Spec gaps (in scope to fix):**
+1. `TurnLogger` is defined but never called from the graph runtime — runtime breadcrumbs go to stderr via `print`, not structured JSON. Spec says "Structured JSON logs per turn: {turn, agent, action, input_tokens, output_tokens, cost_usd, duration_ms}".
+2. Cost/token accounting unused — `MAX_TOTAL_COST_USD=$2.00` and `MAX_TOKENS_PER_CALL=4000` are wired but never incremented; the limit can never trip in practice.
+3. `state.errors` list is declared but never populated.
+4. Web search is sync, not async (spec says async).
+5. Two missing edge-case tests: "client supplies contradictory info" and "analyst tool failure → graceful degradation" (full failure path).
+
+**Quality / polish:**
+- Named-ticker filter is crude (a real ticker like MSFT would be caught, but "Microsoft" would not).
+- No live OpenRouter test (everything's mocked).
+- Trade-offs section in README already documents these honestly.
+
+Working on #1 and #2 first (the structural ones).
