@@ -11,16 +11,11 @@ rejects.
 
 ```mermaid
 flowchart LR
-    subgraph Agents
-        C[Client<br/>persona JSON]
-        AD[Advisor<br/>Mediator]
-        AN[Analyst<br/>tools: KB + web]
-    end
-
-    subgraph Tools
-        KB[(Chroma<br/>knowledge_base)]
-        W[ddgs<br/>web search]
-    end
+    C[Client<br/>persona JSON]
+    AD[Advisor<br/>Mediator]
+    AN[Analyst<br/>KB + web]
+    KB[(Chroma<br/>knowledge_base)]
+    W[ddgs<br/>web search]
 
     C -- question / answer / confirm --> AD
     AD -- question / advice --> C
@@ -28,27 +23,36 @@ flowchart LR
     AN -- report --> AD
     AN --> KB
     AN --> W
-
-    classDef forbidden stroke:#c00,stroke-dasharray:5 5;
-    C -.->|FORBIDDEN| AN:::forbidden
-    AN -.->|FORBIDDEN| C:::forbidden
 ```
+
+Routing is enforced at the **schema** level: `AgentMessage` rejects any
+sender/recipient pair outside the allow-list. The Analyst literally cannot
+message the Client even if a buggy node tried — the only legal paths are the
+six edges above.
 
 ```mermaid
 stateDiagram-v2
+    direction LR
     [*] --> GATHER_PROFILE
-    GATHER_PROFILE --> ANALYZE: advisor dispatches analyst
-    GATHER_PROFILE --> GATHER_PROFILE: advisor asks client
-    ANALYZE --> ADVISE: analyst returns report
-    ADVISE --> CONFIRM: advisor drafts advice
+    GATHER_PROFILE --> ANALYZE: dispatch analyst
+    ANALYZE --> ADVISE: analyst report received
+    ADVISE --> CONFIRM: draft advice
     CONFIRM --> RESOLVED: client confirms
-    CONFIRM --> ANALYZE: client rejects (loop)
-    GATHER_PROFILE --> TERMINATED: limits breached
-    ANALYZE --> TERMINATED: limits breached
-    ADVISE --> TERMINATED: limits breached
+    CONFIRM --> ANALYZE: client rejects, loop back
     RESOLVED --> [*]
-    TERMINATED --> [*]
+
+    state "TERMINATED (MAX_TURNS / MAX_COST)" as TERM
+    GATHER_PROFILE --> TERM
+    ANALYZE --> TERM
+    ADVISE --> TERM
+    CONFIRM --> TERM
+    TERM --> [*]
 ```
+
+While in `GATHER_PROFILE` the advisor may ask several follow-up questions
+before dispatching the analyst — same state, no transition. Any state can
+transition to `TERMINATED` when `MAX_TURNS=20` or `MAX_TOTAL_COST_USD=$2.00`
+is breached.
 
 Routing is enforced at the **schema** level: `AgentMessage` rejects any
 `(sender, recipient)` pair outside the allow-list, so the Analyst literally
