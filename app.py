@@ -157,18 +157,37 @@ def _make_llm_or_error() -> LLMProvider | None:
         return None
 
 
+MODES = ["Watch persona run", "Human-in-loop", "Persona editor"]
+
+
+def _render_top_mode_bar() -> str:
+    """Mode selector pinned to the top of the page (visible on mobile, where
+    the sidebar collapses to a hamburger menu).
+
+    Uses segmented_control if available (Streamlit ≥1.34), otherwise falls
+    back to a horizontal radio.
+    """
+    if hasattr(st, "segmented_control"):
+        mode = st.segmented_control(
+            "Mode", MODES, default=MODES[0], key="mode_choice",
+            label_visibility="collapsed",
+        )
+        # segmented_control returns None if the user deselects; treat that as
+        # "stay on the current mode".
+        if mode is None:
+            mode = st.session_state.get("mode_choice") or MODES[0]
+    else:  # pragma: no cover - older Streamlit fallback
+        mode = st.radio(
+            "Mode", MODES, index=0, key="mode_choice",
+            horizontal=True, label_visibility="collapsed",
+        )
+    return mode
+
+
 def _render_sidebar() -> dict[str, Any]:
     st.sidebar.title("JPM Advisor")
     st.sidebar.caption("LangGraph 3-agent advisor")
 
-    mode = st.sidebar.radio(
-        "Mode",
-        ["Watch persona run", "Human-in-loop", "Persona editor"],
-        index=0,
-        key="mode_choice",
-    )
-
-    st.sidebar.markdown("---")
     st.sidebar.subheader("LLM provider")
     provider = st.sidebar.selectbox(
         "Provider",
@@ -238,19 +257,45 @@ def _render_sidebar() -> dict[str, Any]:
     # `key_ok` tells the modes whether they can enable the Run button.
     key_ok = (key_var is None) or bool(api_key_input) or bool(os.getenv(key_var, ""))
     return {
-        "mode": mode, "provider": provider, "model": model,
+        "provider": provider, "model": model,
         "key_ok": key_ok, "key_var": key_var,
     }
 
 
-def _persona_picker_with_edit() -> str:
-    """Render persona dropdown + 'Edit persona' button. Returns the chosen key.
+def _go_to_editor() -> None:
+    """Switch the sidebar mode radio to 'Persona editor'.
 
-    The dropdown is keyed in session_state so it persists across reruns and
-    mode switches. The Edit button programmatically flips the sidebar mode
-    radio to 'Persona editor' so users can jump straight to it.
+    Must run as an `on_click` callback (Streamlit forbids mutating a widget's
+    session_state key after the widget has been instantiated; on_click fires
+    BEFORE the next run instantiates the widget).
     """
-    cols = st.columns([3, 1])
+    st.session_state.mode_choice = "Persona editor"
+
+
+def _go_to_editor_blank() -> None:
+    """Same as _go_to_editor but also clears editor_profile so the form
+    starts blank instead of preloaded with the current persona."""
+    st.session_state.mode_choice = "Persona editor"
+    st.session_state.editor_profile = _blank_editor_form()
+
+
+def _blank_editor_form() -> dict:
+    return {
+        "name": "",
+        "age": 35,
+        "risk_tolerance": "moderate",
+        "annual_income": 75000.0,
+        "time_horizon_years": 20,
+        "goals": "",
+        "notes": "",
+        "assets_json": "{\n  \"cash\": 0\n}",
+        "investments_json": "[]",
+    }
+
+
+def _persona_picker_with_edit() -> str:
+    """Render persona dropdown + Edit / New buttons. Returns the chosen key."""
+    cols = st.columns([3, 1, 1])
     with cols[0]:
         persona = st.selectbox(
             "Persona",
@@ -262,11 +307,20 @@ def _persona_picker_with_edit() -> str:
                 "the editor, that overrides this selection."
             ),
         )
+    # Pad the buttons down so they line up with the selectbox baseline.
+    spacer = "<div style='height: 1.85rem'></div>"
     with cols[1]:
-        st.markdown("<div style='height: 1.85rem'></div>", unsafe_allow_html=True)
-        if st.button("✏️ Edit persona", use_container_width=True):
-            st.session_state.mode_choice = "Persona editor"
-            st.rerun()
+        st.markdown(spacer, unsafe_allow_html=True)
+        st.button(
+            "✏️ Edit", on_click=_go_to_editor, use_container_width=True,
+            help="Open the editor preloaded with the current persona.",
+        )
+    with cols[2]:
+        st.markdown(spacer, unsafe_allow_html=True)
+        st.button(
+            "➕ New", on_click=_go_to_editor_blank, use_container_width=True,
+            help="Open the editor with a blank form to create a new persona.",
+        )
     return persona
 
 
@@ -651,12 +705,30 @@ def _mode_editor() -> None:
         "Apply it as the active client to use in the other modes."
     )
 
-    base_key = st.selectbox("Start from", list(PERSONA_FILES.keys()), index=1)
     if st.session_state.editor_profile is None:
-        st.session_state.editor_profile = profile_to_form_dict(load_persona(base_key))
-    if st.button("Reload from disk"):
-        st.session_state.editor_profile = profile_to_form_dict(load_persona(base_key))
-        st.rerun()
+        st.session_state.editor_profile = profile_to_form_dict(load_persona("david"))
+
+    cols = st.columns([3, 1, 1])
+    with cols[0]:
+        base_key = st.selectbox(
+            "Start from", list(PERSONA_FILES.keys()),
+            index=1,
+            key="editor_start_from",
+            help="Select a built-in persona to load into the form below.",
+        )
+    spacer = "<div style='height: 1.85rem'></div>"
+    with cols[1]:
+        st.markdown(spacer, unsafe_allow_html=True)
+        if st.button("🔄 Load", use_container_width=True,
+                     help="Replace the form with the chosen built-in persona."):
+            st.session_state.editor_profile = profile_to_form_dict(load_persona(base_key))
+            st.rerun()
+    with cols[2]:
+        st.markdown(spacer, unsafe_allow_html=True)
+        if st.button("🆕 Blank", use_container_width=True,
+                     help="Clear the form to create a new persona from scratch."):
+            st.session_state.editor_profile = _blank_editor_form()
+            st.rerun()
 
     form = st.session_state.editor_profile
     col1, col2 = st.columns(2)
@@ -737,17 +809,18 @@ def _reset_run_state() -> None:
 def main() -> None:
     st.set_page_config(page_title="JPM Advisor", page_icon="💼", layout="wide")
     _ensure_state()
+    mode = _render_top_mode_bar()
     sb = _render_sidebar()
 
     # Clear the previous run when the user switches modes — old transcripts
     # from a different mode are noise.
-    if st.session_state.get("_prev_mode") != sb["mode"]:
+    if st.session_state.get("_prev_mode") != mode:
         _reset_run_state()
-        st.session_state._prev_mode = sb["mode"]
+        st.session_state._prev_mode = mode
 
-    if sb["mode"] == "Watch persona run":
+    if mode == "Watch persona run":
         _mode_watch(key_ok=sb["key_ok"], key_var=sb["key_var"])
-    elif sb["mode"] == "Human-in-loop":
+    elif mode == "Human-in-loop":
         _mode_human(key_ok=sb["key_ok"], key_var=sb["key_var"])
     else:
         _mode_editor()
