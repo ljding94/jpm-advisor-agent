@@ -7,7 +7,7 @@ name = "jpm-advisor-agent"
 version = "0.1.0"
 description = "LangGraph-based multi-agent financial advisor (JPM take-home)"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 dynamic = ["dependencies"]
 
 [tool.setuptools.dynamic]
