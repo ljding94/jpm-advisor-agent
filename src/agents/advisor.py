@@ -5,7 +5,7 @@ import json
 from typing import Any, Literal
 
 from src.agents.base import BaseAgent
-from src.graph.state import AdvisorState, ConversationStatus
+from src.graph.state import AdvisorState, ConversationStatus, append_error
 from src.guardrails.output_filter import enforce_advice_disclaimer, filter_text
 from src.guardrails.pii import redact_text
 from src.providers.llm import LLMProvider
@@ -90,12 +90,16 @@ class AdvisorAgent(BaseAgent):
     @staticmethod
     def _parse_decision_json(raw: str, state: AdvisorState) -> dict[str, Any]:
         raw = raw.strip()
+        parse_error: str | None = None
         try:
             decoded = json.loads(raw) if raw else {}
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as exc:
             decoded = {}
+            parse_error = f"advisor decision JSON malformed: {exc.msg}"
         action = decoded.get("next_action")
         if action not in {"ask_client", "dispatch_analyst", "draft_advice", "finalize"}:
+            if parse_error is None and raw:
+                parse_error = f"advisor decision missing/invalid next_action: {raw[:120]!r}"
             # Default fallback: progress through the state machine.
             current = state.get("status", ConversationStatus.GATHER_PROFILE)
             if current == ConversationStatus.GATHER_PROFILE:
@@ -104,6 +108,8 @@ class AdvisorAgent(BaseAgent):
                 action = "dispatch_analyst"
             else:
                 action = "draft_advice"
+        if parse_error is not None:
+            append_error(state, source="advisor", detail=parse_error)
         return {
             "next_action": action,
             "target": decoded.get("target", "client" if action == "ask_client" else "analyst"),

@@ -105,3 +105,12 @@ Working on #1 and #2 first (the structural ones).
 - 123/123 tests pass at 94% coverage. Live run on `david`: 12 turns, 8,844 in + 1,265 out tokens, ~$0.0455 (well under the $2 cap).
 
 Remaining spec gaps: #3 `state.errors` unused, #4 web_search not async, #5 missing edge-case tests. None of these block usability — leaving for a future pass.
+
+## 2026-04-28 — Closed remaining spec gaps (#3, #4, #5)
+- **#3 `state.errors`**: added `append_error(state, source, detail)` helper in `src/graph/state.py`. Wired into:
+  - Advisor: logs when the LLM returns malformed JSON or a missing/invalid `next_action`.
+  - Analyst: logs `analyst.kb` when KB throws, `analyst.web` when web search throws, and `analyst` when both retrieval sources are empty.
+  - Builder wrapper: logs `[limits]` whenever `MAX_TURNS` or `MAX_TOTAL_COST_USD` trips alongside setting `termination_reason`.
+- **#4 Async web search**: added `WebSearchProvider.search_async` to the abstract interface with a default implementation that dispatches the sync `search` to `asyncio.to_thread`. Test verifies it doesn't block the event loop. Trade-off documented in README — it's a thin shim, not native async HTTP, since the rest of the agent path is sync.
+- **#5 Edge-case tests** (called out in the spec but missing): `tests/test_edge_cases.py` covers (a) client supplies contradictory info → still resolves with both messages preserved in the transcript, and (b) BOTH KB and web search throw → analyst still produces a valid report via the planning-principles fallback, errors appear in `state.errors`, conversation reaches RESOLVED.
+- 134 tests pass at 94% coverage. All five spec-audit gaps are now closed.

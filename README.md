@@ -136,6 +136,11 @@ Full transcripts: [`examples/sample_conversation_margaret.md`](examples/sample_c
   multi-tenant session memory. Each invocation starts fresh.
 - **No UI / API surface.** CLI only. The graph is invoked synchronously via
   `python -m src.main`; no streaming output, no websocket, no FastAPI wrapper.
+- **Async web search is a thin shim.** `WebSearchProvider.search_async` runs
+  the sync `ddgs` call on a worker thread via `asyncio.to_thread` rather than
+  using a native async HTTP client. Satisfies the spec's interface requirement
+  but doesn't deliver real concurrency — only matters once the analyst issues
+  multiple parallel searches, which it doesn't today.
 - **Output filter is best-effort.** The named-ticker regex is a crude
   letter-string heuristic with a whitelist; a determined LLM could probably
   smuggle a ticker. The right long-term answer is a model fine-tuned to refuse,

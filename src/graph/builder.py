@@ -12,7 +12,7 @@ from src.agents.analyst import AnalystAgent
 from src.agents.base import BaseAgent
 from src.agents.client import ClientAgent
 from src.graph.routing import route_next
-from src.graph.state import AdvisorState, ConversationStatus
+from src.graph.state import AdvisorState, ConversationStatus, append_error
 from src.guardrails.limits import LimitState, check_limits
 from src.observability.logger import TurnLogger
 
@@ -41,11 +41,12 @@ def _wrap_node(
             )
         )
         if breach is not None:
-            return {
+            terminated: AdvisorState = {
                 **state,
                 "status": ConversationStatus.TERMINATED,
                 "termination_reason": breach.detail,
             }
+            return append_error(terminated, source="limits", detail=f"{breach.name}: {breach.detail}")
 
         if verbose:
             turn = state.get("turn_count", 0) + 1

@@ -1,6 +1,7 @@
 """Graph state definitions."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, TypedDict
 
@@ -40,3 +41,16 @@ def initial_state(profile: ClientProfile) -> AdvisorState:
         errors=[],
         termination_reason=None,
     )
+
+
+def append_error(state: AdvisorState, *, source: str, detail: str) -> AdvisorState:
+    """Append a structured error entry to `state.errors`.
+
+    Mutates and returns `state`. Each entry is `"{ts} [{source}] {detail}"` so
+    the log is greppable both by timestamp and by emitting subsystem.
+    """
+    ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    errors = list(state.get("errors", []))
+    errors.append(f"{ts} [{source}] {detail}")
+    state["errors"] = errors
+    return state

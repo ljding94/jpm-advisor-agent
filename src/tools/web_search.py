@@ -1,6 +1,14 @@
-"""DuckDuckGo web search behind a swappable WebSearchProvider interface."""
+"""DuckDuckGo web search behind a swappable WebSearchProvider interface.
+
+The interface is async-callable (`search_async`) per the spec, with a sync
+shim (`search`) that runs the same call on a worker thread for callers that
+aren't async themselves. The DDG provider's underlying `ddgs` package is sync;
+the async surface uses `asyncio.to_thread` to satisfy the spec without forcing
+a top-to-bottom async refactor of the agents.
+"""
 from __future__ import annotations
 
+import asyncio
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -25,11 +33,15 @@ class WebResult:
 
 
 class WebSearchProvider(ABC):
-    """Abstract web search provider."""
+    """Abstract web search provider — exposes both sync and async APIs."""
 
     @abstractmethod
     def search(self, query: str, max_results: int = 5) -> list[WebResult]:
         ...
+
+    async def search_async(self, query: str, max_results: int = 5) -> list[WebResult]:
+        """Async API. Default: dispatch sync `search` to a worker thread."""
+        return await asyncio.to_thread(self.search, query, max_results)
 
 
 class DDGSearchProvider(WebSearchProvider):

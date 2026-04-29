@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 
 from src.agents.base import BaseAgent
-from src.graph.state import AdvisorState, ConversationStatus
+from src.graph.state import AdvisorState, ConversationStatus, append_error
 from src.providers.llm import LLMProvider
 from src.schemas import (
     AgentMessage,
@@ -66,7 +66,7 @@ class AnalystAgent(BaseAgent):
             return state
 
         query = last.content.strip()
-        report = self.research(query)
+        report = self.research(query, state=state)
 
         msg = AgentMessage(
             sender=AgentRole.ANALYST,
@@ -87,9 +87,9 @@ class AnalystAgent(BaseAgent):
 
     # -------- research pipeline --------
 
-    def research(self, query: str) -> AnalystReport:
-        kb_chunks = self._kb_search(query)
-        web_results = self._web_search_if_needed(query, kb_chunks)
+    def research(self, query: str, state: AdvisorState | None = None) -> AnalystReport:
+        kb_chunks = self._kb_search(query, state=state)
+        web_results = self._web_search_if_needed(query, kb_chunks, state=state)
         sources = self._merge_sources(kb_chunks, web_results)
         if not sources:
             # Hard guarantee — AnalystReport requires non-empty sources.
@@ -99,6 +99,11 @@ class AnalystAgent(BaseAgent):
                     snippet="Fallback: no specific source retrieved.",
                 )
             ]
+            if state is not None:
+                append_error(
+                    state, source="analyst",
+                    detail="all retrieval sources empty — using planning-principles fallback",
+                )
         findings = self._synthesize(query=query, kb_chunks=kb_chunks, web_results=web_results)
         confidence = self._estimate_confidence(kb_chunks, web_results)
         return AnalystReport(
@@ -108,16 +113,18 @@ class AnalystAgent(BaseAgent):
             confidence=confidence,
         )
 
-    def _kb_search(self, query: str) -> list[RetrievedChunk]:
+    def _kb_search(self, query: str, state: AdvisorState | None = None) -> list[RetrievedChunk]:
         if self.knowledge_store is None:
             return []
         try:
             return self.knowledge_store.similarity_search(query, k=self.kb_top_k)
-        except Exception:  # pragma: no cover - defensive
+        except Exception as exc:
+            if state is not None:
+                append_error(state, source="analyst.kb", detail=f"{type(exc).__name__}: {exc}")
             return []
 
     def _web_search_if_needed(
-        self, query: str, kb_chunks: list[RetrievedChunk]
+        self, query: str, kb_chunks: list[RetrievedChunk], state: AdvisorState | None = None
     ) -> list[WebResult]:
         if self.web_search is None:
             return []
@@ -127,7 +134,9 @@ class AnalystAgent(BaseAgent):
             return []
         try:
             return self.web_search.search(query, max_results=self.web_top_k)
-        except Exception:  # pragma: no cover - degrade gracefully
+        except Exception as exc:
+            if state is not None:
+                append_error(state, source="analyst.web", detail=f"{type(exc).__name__}: {exc}")
             return []
 
     def _merge_sources(
