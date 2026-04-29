@@ -1,6 +1,7 @@
 """ChromaDB-backed knowledge store for finance markdown docs."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
@@ -8,6 +9,13 @@ from pathlib import Path
 from typing import Any, cast
 
 from src.providers.embeddings import EmbeddingProvider, get_embedding_provider
+
+# Silence chromadb's posthog telemetry warnings before any chromadb import.
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+os.environ.setdefault("CHROMA_TELEMETRY_DISABLED", "true")
+os.environ.setdefault("POSTHOG_DISABLED", "true")
+logging.getLogger("chromadb.telemetry.product.posthog").setLevel(logging.CRITICAL)
+logging.getLogger("posthog").setLevel(logging.CRITICAL)
 
 
 @dataclass
@@ -49,12 +57,16 @@ class KnowledgeStore:
         collection_name: str | None = None,
     ) -> None:
         import chromadb
+        from chromadb.config import Settings
 
         self.persist_path = str(persist_path or os.getenv("CHROMA_PATH", "data/chroma"))
         Path(self.persist_path).mkdir(parents=True, exist_ok=True)
         self.embedder = embedder or get_embedding_provider()
         self.collection_name = collection_name or self.DEFAULT_COLLECTION
-        self._client = chromadb.PersistentClient(path=self.persist_path)
+        self._client = chromadb.PersistentClient(
+            path=self.persist_path,
+            settings=Settings(anonymized_telemetry=False),
+        )
         self._collection = self._client.get_or_create_collection(self.collection_name)
 
     # ----------- ingestion -----------

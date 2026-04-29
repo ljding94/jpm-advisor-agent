@@ -61,14 +61,15 @@ def _build_kb() -> KnowledgeStore:
     return store
 
 
-def run(persona_key: str, *, max_turns_hint: int = 80) -> dict[str, Any]:
+def run(persona_key: str, *, max_turns_hint: int = 80, verbose: bool = True) -> dict[str, Any]:
     profile = _load_persona(persona_key)
+    print(f"[1/3] Persona: {profile.name} ({persona_key}, {profile.risk_tolerance}, age {profile.age})", file=sys.stderr)
+    print("[2/3] Initializing LLM, knowledge store, and web search...", file=sys.stderr, flush=True)
     llm = _build_llm()
     try:
         kb = _build_kb()
     except Exception as exc:
         print(f"WARN: knowledge store unavailable ({exc}); analyst will rely on web search.", file=sys.stderr)
-        # Use a no-op KB shim that always returns empty.
         kb = None  # type: ignore[assignment]
     web = DDGSearchProvider()
 
@@ -78,14 +79,15 @@ def run(persona_key: str, *, max_turns_hint: int = 80) -> dict[str, Any]:
 
     state = initial_state(profile)
     state = client.open_conversation(state)
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst)
+    print("[3/3] Running conversation...", file=sys.stderr, flush=True)
+    graph = build_graph(client=client, advisor=advisor, analyst=analyst, verbose=verbose)
     final = graph.invoke(state, config={"recursion_limit": max_turns_hint})
 
     out = export_transcript(final, persona_key=persona_key)
-    print(f"Wrote transcript: {out}")
-    print(f"Final status: {final['status'].value}")
+    print(f"\nDone. Wrote transcript: {out}", file=sys.stderr)
+    print(f"Final status: {final['status'].value}", file=sys.stderr)
     if final.get("termination_reason"):
-        print(f"Termination reason: {final['termination_reason']}")
+        print(f"  Termination reason: {final['termination_reason']}", file=sys.stderr)
     return final
 
 

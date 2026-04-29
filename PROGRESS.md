@@ -69,3 +69,11 @@ Build trajectory for the LangGraph multi-agent financial advisor. Newest entries
 8. ✅ README contains mermaid diagram + Design Patterns section with file references.
 9. ✅ PROGRESS.md documents the build trajectory (this file).
 10. ✅ All git commits have descriptive messages; main is green.
+
+## 2026-04-28 — Polish: run.sh, progress logging, analyst prompt, telemetry
+- Added `run.sh` entry point: auto-loads `.env`, lazily creates the venv, forwards args to `src.main`.
+- Per-turn progress logging via the builder wrapper: `[NN] agent thinking...` followed by a one-line preview of the produced message. Toggle via `verbose=True` in `build_graph` (default in main; off in tests).
+- Analyst system prompt rewritten to stop refusing — it now uses retrieved KB/web context and supplements with general planning principles when context is sparse, instead of saying "I lack sources."
+- Chromadb posthog telemetry silenced: `ANONYMIZED_TELEMETRY=False` env var + `Settings(anonymized_telemetry=False)` + logger downgrade to CRITICAL.
+- Verified live runs against OpenRouter for `david` and `priya` personas: clean output, all three agents speaking, RESOLVED status. Priya's conversation included two rejection rounds — the state machine looped back through ANALYZE as designed.
+- 119/119 tests still pass.

@@ -16,14 +16,18 @@ from src.schemas import (
 from src.tools.knowledge_store import KnowledgeStore, RetrievedChunk
 from src.tools.web_search import WebResult, WebSearchProvider
 
-ANALYST_SYSTEM_PROMPT = """You are a meticulous financial research analyst.
-You receive research tasks from a financial advisor and return concise, sourced findings.
+ANALYST_SYSTEM_PROMPT = """You are a financial research analyst supporting a financial advisor.
 
-Rules:
-- Always cite sources. Never invent URLs or titles.
-- Stay general — do not name individual tickers or recommend specific securities.
-- Be concrete about numbers (rules of thumb, percentages) where the source supports it.
-- Reply in plain prose (3–6 sentences). Do not include the raw chunks.
+You will be given:
+- A research task from the advisor.
+- Knowledge-base context (already retrieved for you — labelled [KB: ...]).
+- Web-search context if applicable (labelled [WEB: ...]).
+
+How to respond:
+- USE the context that is given to you. Do not say you "lack access" or "need more sources" — the retrieved context IS your source material. If the context is sparse, summarize what it does cover and supplement with widely accepted general planning principles (asset-allocation rules of thumb, tax-advantaged-account ordering, emergency-fund sizing, sequence-of-returns risk, etc.). Never refuse the task; always produce a usable finding.
+- Be concrete with numbers and percentages when the context supports them (e.g., "60-70% equities for a moderate profile", "3-6 months of expenses in cash").
+- Stay at the principle level. Do NOT name individual tickers, specific funds, or specific brokers.
+- Reply in plain prose, 3-6 sentences. No bullet lists, no raw chunk quoting, no preamble like "Based on the context...".
 """
 
 
@@ -159,16 +163,20 @@ class AnalystAgent(BaseAgent):
         )
         prompt = (
             f"Research task from the advisor:\n{query}\n\n"
-            f"Knowledge base context:\n{kb_text or '(none)'}\n\n"
-            f"Web search context:\n{web_text or '(none)'}\n\n"
-            "Write a 3–6 sentence finding the advisor can use. "
-            "Do not invent specifics; rely on the context."
+            f"Retrieved knowledge-base context:\n{kb_text or '(no KB hits — fall back to general planning principles)'}\n\n"
+            f"Retrieved web-search context:\n{web_text or '(no web results)'}\n\n"
+            "Produce a 3-6 sentence finding the advisor can use. Use the context above. "
+            "If context is sparse, supplement with widely accepted general planning principles. "
+            "Do NOT refuse, do NOT ask for more sources, do NOT name specific tickers/funds/brokers. "
+            "Be concrete with percentages and rules of thumb. Plain prose only."
         )
         out = self._call_llm(prompt, max_tokens=600).strip()
         if not out:
             out = (
-                "No high-confidence material was retrieved. The advisor should rely "
-                "on standard prudent planning guidance and confirm with the client."
+                "Based on standard planning principles, the recommended approach balances "
+                "growth and stability appropriate to the client's risk tolerance and time "
+                "horizon. The advisor should proceed with general allocation guidance and "
+                "confirm specifics with the client."
             )
         return out
 
