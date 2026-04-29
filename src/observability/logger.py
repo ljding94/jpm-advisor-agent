@@ -84,8 +84,22 @@ class TurnLogger:
         }
 
 
+def _md_escape(text: str) -> str:
+    """Escape characters that downstream markdown renderers (GitHub, VS Code,
+    Streamlit, Obsidian) treat as math/strikethrough. Without this, dollar
+    amounts in LLM output get italicized as LaTeX and `~~` pairs strike text.
+    """
+    return text.replace("$", r"\$").replace("~", r"\~")
+
+
 def render_transcript(state: AdvisorState, *, persona_key: str) -> str:
-    """Render a markdown transcript for `examples/sample_conversation_<persona>.md`."""
+    """Render a markdown transcript for `examples/sample_conversation_<persona>.md`.
+
+    LLM-generated content is run through `_md_escape` so dollar amounts and
+    "~~" emphasis don't trigger LaTeX math / strikethrough in viewers that
+    support those extensions. Static numeric fields (income, assets) are
+    pre-formatted strings, so they get the same escape for consistency.
+    """
     profile = state["client_profile"]
     history: list[AgentMessage] = state.get("conversation_history", [])
     advice = state.get("draft_advice")
@@ -98,12 +112,12 @@ def render_transcript(state: AdvisorState, *, persona_key: str) -> str:
         f"- **Persona**: `{persona_key}` ({profile.risk_tolerance})",
         f"- **Age**: {profile.age}",
         f"- **Time horizon**: {profile.time_horizon_years} years",
-        f"- **Annual income**: ${profile.annual_income:,.0f}",
-        f"- **Total assets**: ${profile.total_assets:,.0f}",
+        f"- **Annual income**: \\${profile.annual_income:,.0f}",
+        f"- **Total assets**: \\${profile.total_assets:,.0f}",
         f"- **Final status**: `{status.value if status else 'unknown'}`",
     ]
     if termination:
-        lines.append(f"- **Termination reason**: {termination}")
+        lines.append(f"- **Termination reason**: {_md_escape(termination)}")
     lines.append("")
     lines.append("## Transcript")
     lines.append("")
@@ -115,7 +129,7 @@ def render_transcript(state: AdvisorState, *, persona_key: str) -> str:
         )
         lines.append(header)
         lines.append("")
-        lines.append(msg.content.strip())
+        lines.append(_md_escape(msg.content.strip()))
         lines.append("")
 
     if advice is not None:
@@ -123,21 +137,21 @@ def render_transcript(state: AdvisorState, *, persona_key: str) -> str:
         lines.append("")
         lines.append("**Recommendations:**")
         for r in advice.recommendations:
-            lines.append(f"- {r}")
+            lines.append(f"- {_md_escape(r)}")
         lines.append("")
-        lines.append(f"**Rationale:** {advice.rationale}")
+        lines.append(f"**Rationale:** {_md_escape(advice.rationale)}")
         lines.append("")
         if advice.sources:
             lines.append("**Sources:**")
             for s in advice.sources:
-                src_line = f"- {s.title}"
+                src_line = f"- {_md_escape(s.title)}"
                 if s.url:
                     src_line += f" ({s.url})"
                 lines.append(src_line)
             lines.append("")
         lines.append("**Disclaimers:**")
         for d in advice.disclaimers:
-            lines.append(f"- {d}")
+            lines.append(f"- {_md_escape(d)}")
         lines.append("")
 
     return "\n".join(lines).rstrip() + "\n"

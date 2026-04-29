@@ -11,9 +11,11 @@ A working LLM provider must be configured via env vars (see .env.example).
 """
 from __future__ import annotations
 
+import json
 import os
 import queue
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -254,14 +256,24 @@ def _resolve_profile(persona_key: str) -> ClientProfile:
 
 
 def _safe_md(text: str) -> str:
-    """Escape characters Streamlit's markdown renderer interprets specially.
+    """Make LLM content safe to pass to `st.markdown(..., unsafe_allow_html=True)`.
 
-    Most importantly: a pair of `$` signs is treated as inline LaTeX math, which
-    mangles dollar amounts in LLM output (e.g. "$40K to $50K" becomes a math
-    block with each character on its own line). Escaping `$` to `\\$` fixes
-    this without breaking actual markdown formatting.
+    Streamlit ships a KaTeX extension that grabs anything between `$...$` as
+    inline LaTeX math regardless of the `\\$` markdown escape — so dollar
+    amounts in LLM output get italicized. The reliable workaround is to
+    convert `$` to the HTML entity `&#36;`, which never enters math mode.
+
+    Other special-case escapes:
+    - `~` → `\\~`  (defeats GFM strikethrough when models emit `~~scenario~~`).
+    - `<` and `>` are HTML-escaped first so any LLM-emitted markup doesn't
+      get rendered now that we've enabled `unsafe_allow_html=True`.
+
+    Bold/italic (`**`, `*`, `_`) are kept since the LLM intentionally uses
+    them for emphasis.
     """
-    return text.replace("$", r"\$")
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = text.replace("$", "&#36;").replace("~", r"\~")
+    return text
 
 
 def _render_transcript_from_holder() -> None:
@@ -276,7 +288,10 @@ def _render_transcript_from_holder() -> None:
             st.markdown(
                 f"**{m.sender.value} → {m.recipient.value}**  \n_{m.message_type.value}_"
             )
-            st.markdown(_safe_md(m.content))
+            # unsafe_allow_html=True is needed for `&#36;` (escaped $) to decode.
+            # The content is HTML-escaped first by _safe_md so LLM output can't
+            # smuggle real HTML through.
+            st.markdown(_safe_md(m.content), unsafe_allow_html=True)
 
 
 def _render_meter() -> None:
@@ -300,12 +315,80 @@ def _render_advice(state: dict | None) -> None:
     st.markdown("## Final advice")
     st.markdown("**Recommendations**")
     for r in advice.recommendations:
-        st.markdown(f"- {_safe_md(r)}")
-    st.markdown(f"**Rationale:** {_safe_md(advice.rationale)}")
+        st.markdown(f"- {_safe_md(r)}", unsafe_allow_html=True)
+    st.markdown(f"**Rationale:** {_safe_md(advice.rationale)}", unsafe_allow_html=True)
     if advice.disclaimers:
         with st.expander("Disclaimers"):
             for d in advice.disclaimers:
-                st.markdown(f"- {_safe_md(d)}")
+                st.markdown(f"- {_safe_md(d)}", unsafe_allow_html=True)
+
+
+def _render_downloads(persona_key: str) -> None:
+    """Offer downloads for the current run: markdown transcript + JSON debug bundle."""
+    holder = st.session_state.holder
+    transcript = holder.get("transcript", [])
+    final_state = holder.get("final_state")
+    if not transcript and final_state is None:
+        return
+
+    # Build a synthetic state-like dict if the run was stopped before completion.
+    state_for_md = final_state or {
+        "client_profile": _resolve_profile(persona_key),
+        "conversation_history": transcript,
+        "draft_advice": None,
+        "status": None,
+        "termination_reason": "stopped" if holder.get("stopped") else None,
+    }
+
+    # Markdown transcript — re-uses the same renderer the CLI writes to disk.
+    md_text = render_transcript(state_for_md, persona_key=persona_key)
+
+    # JSON debug bundle — raw transcript + usage summary + any errors.
+    log = st.session_state.ui_log
+    status = state_for_md.get("status")
+    debug_payload: dict = {
+        "persona": persona_key,
+        "status": status.value if status is not None else None,
+        "termination_reason": state_for_md.get("termination_reason"),
+        "stopped": bool(holder.get("stopped")),
+        "error": holder.get("error"),
+        "usage": log.summary() if log is not None else {},
+        "transcript": [
+            {
+                "sender": m.sender.value,
+                "recipient": m.recipient.value,
+                "type": m.message_type.value,
+                "content": m.content,
+                "timestamp": m.timestamp.isoformat() if m.timestamp else None,
+            }
+            for m in transcript
+        ],
+        "errors": list(state_for_md.get("errors", [])),
+    }
+    if state_for_md.get("draft_advice") is not None:
+        a = state_for_md["draft_advice"]
+        debug_payload["advice"] = a.model_dump()
+
+    json_text = json.dumps(debug_payload, indent=2, default=str)
+
+    ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    cols = st.columns(2)
+    with cols[0]:
+        st.download_button(
+            "⬇ Download transcript (.md)",
+            data=md_text,
+            file_name=f"conversation_{persona_key}_{ts}.md",
+            mime="text/markdown",
+            use_container_width=True,
+        )
+    with cols[1]:
+        st.download_button(
+            "⬇ Download debug bundle (.json)",
+            data=json_text,
+            file_name=f"conversation_{persona_key}_{ts}.json",
+            mime="application/json",
+            use_container_width=True,
+        )
 
 
 def _start_persona_run(persona_key: str) -> None:
@@ -461,6 +544,7 @@ def _mode_watch(persona_key: str, *, key_ok: bool, key_var: str | None) -> None:
     _render_meter()
     _render_transcript_from_holder()
     _render_advice(holder.get("final_state"))
+    _render_downloads(persona_key)
 
     if running:
         # Re-render shortly so the streamed transcript and meter advance.
@@ -501,9 +585,6 @@ def _mode_human(persona_key: str, *, key_ok: bool, key_var: str | None) -> None:
     elif holder.get("stopped") and not running:
         st.warning("Stopped.")
 
-    if holder.get("error"):
-        st.error(f"Run failed: {holder['error']}")
-
     _render_meter()
     _render_transcript_from_holder()
 
@@ -519,8 +600,11 @@ def _mode_human(persona_key: str, *, key_ok: bool, key_var: str | None) -> None:
         kind = pending.get("kind", "question")
         st.markdown(f"### Advisor needs your input ({kind})")
         st.info(pending.get("content", ""))
-        with st.form("human-input"):
-            text = st.text_area("Your reply", height=120)
+        # `clear_on_submit=True` resets the text_input after Enter, so the
+        # previous reply doesn't sit in the box. text_input (single-line)
+        # submits on Enter, unlike text_area.
+        with st.form("human-input", clear_on_submit=True):
+            text = st.text_input("Your reply", placeholder="Type and press Enter to send")
             ok = st.form_submit_button("Send")
             if ok and text.strip():
                 st.session_state.client_responses.put(text.strip())
@@ -534,6 +618,7 @@ def _mode_human(persona_key: str, *, key_ok: bool, key_var: str | None) -> None:
         st.rerun()
 
     _render_advice(holder.get("final_state"))
+    _render_downloads(persona_key)
 
 
 def _mode_editor() -> None:
@@ -609,10 +694,33 @@ def _mode_editor() -> None:
                 st.error(f"Could not save: {exc}")
 
 
+def _reset_run_state() -> None:
+    """Wipe the active run holder + queues without touching persona-editor state."""
+    # If a worker is mid-run, signal it to stop cooperatively. The thread will
+    # exit between graph yields and harmlessly write to this stale dict.
+    old = st.session_state.get("holder")
+    if isinstance(old, dict) and old.get("running"):
+        old["stop"] = True
+    st.session_state.holder = {
+        "running": False, "final_state": None, "transcript": [],
+        "error": None, "stop": False, "stopped": False,
+    }
+    st.session_state.ui_log = None
+    st.session_state.client_responses = None
+    st.session_state.client_prompts = None
+    st.session_state.pending_human_prompt = None
+
+
 def main() -> None:
     st.set_page_config(page_title="JPM Advisor", page_icon="💼", layout="wide")
     _ensure_state()
     sb = _render_sidebar()
+
+    # Clear the previous run when the user switches modes — old transcripts
+    # from a different mode are noise.
+    if st.session_state.get("_prev_mode") != sb["mode"]:
+        _reset_run_state()
+        st.session_state._prev_mode = sb["mode"]
 
     if sb["mode"] == "Watch persona run":
         _mode_watch(sb["persona"], key_ok=sb["key_ok"], key_var=sb["key_var"])
