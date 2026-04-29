@@ -120,3 +120,51 @@ Remaining spec gaps: #3 `state.errors` unused, #4 web_search not async, #5 missi
 - GitHub repo renamed: `ljding94/jpm-advisor` → `ljding94/jpm-advisor-agent` (URL updated, old URL still redirects).
 - Local folder renamed: `/Users/ldq/Work/jpm-advisor` → `/Users/ldq/Work/jpm-advisor-agent`.
 - SPEC.md and the earlier PROGRESS.md entries kept unchanged (they record the project state at the time of writing).
+
+## 2026-04-29 — Scope expansion: plan + Milestone 1 (multi-provider LLM)
+The original spec was deliberately CLI-only and OpenRouter-only. Beginning a three-milestone expansion: pluggable LLM providers, a Streamlit UI, and an evaluation harness. Plan file at `~/.claude/plans/resilient-honking-boot.md`.
+
+**M1 — multi-provider LLM dispatch.** Done.
+- `get_llm_provider()` now dispatches on `LLM_PROVIDER` env var. Default `openrouter` keeps existing behavior unchanged.
+- New: `OpenAILLM` (`src/providers/openai_llm.py`) — native OpenAI SDK, default `gpt-4o-mini`.
+- New: `AnthropicLLM` (`src/providers/anthropic_llm.py`) — native `anthropic` SDK, default `claude-sonnet-4-6`. Splits OpenAI-style `system` messages into the top-level `system` arg the Messages API expects, and force-nudges JSON when `response_format={"type":"json_object"}` is requested.
+- New: `OllamaLLM` (`src/providers/ollama_llm.py`) — `urllib`-based POST to `http://localhost:11434/api/chat`. Cost is hard-coded to $0 (local).
+- All three honor the `LLMProvider` contract: set `last_usage`, call `_accumulate`, retry via `tenacity`.
+- Embeddings dispatcher gained `EMBEDDING_PROVIDER=auto|openrouter|openai|local` plus a new `OpenAIEmbeddings` class.
+- `MODEL_PRICES` extended with native-style ids (`claude-sonnet-4-6`, `gpt-4o-mini`, etc.) and 4.6/4.7-era models so the cost estimator works regardless of provider naming style.
+- `src/main.py` now goes through `get_llm_provider()` so the CLI honors `LLM_PROVIDER` too.
+- `requirements.txt` += `anthropic==0.42.0`. `.env.example` documents all new env vars.
+- `tests/test_providers.py` now covers dispatch (each value of `LLM_PROVIDER`), provider-level usage tracking via mocked SDK responses, and an unknown-provider error path. Fixed the brittle `isinstance(provider, OpenRouterEmbeddings)` check in the existing test by making it tolerant of either default.
+- 143/143 tests pass at 94% coverage.
+
+## 2026-04-29 — Milestone 3: evaluation harness
+Built before the UI so we can validate provider parity numerically before the UI exposes the choice.
+
+- `src/eval/deterministic.py` — nine pure-Python checks against the final `AdvisorState`. Reuses `find_banned_phrases`, `find_named_tickers`, and `redact` from the existing guardrails so the eval asserts the same invariants the runtime tries to maintain. Each check returns a `CheckResult(name, passed, detail)`.
+- `src/eval/judge.py` — `LLMJudge` with a five-criterion rubric (`risk_alignment`, `goal_alignment`, `specificity`, `coherence`, `safety`), scored 1–5 in a single JSON object. Tolerant `_parse_score` that strips ``` json fences and clamps out-of-range values.
+- `src/eval/runner.py` — orchestrates per-(persona, run_index) execution: builds runtime, invokes the graph, captures final state + transcript + turn-log usage, applies deterministic checks, optionally calls the judge.
+- `src/eval/report.py` — writes `evals/reports/<UTC-timestamp>/results.json` and `report.md` (summary table, aggregates, judge-score histogram, listed failures, judge notes).
+- CLI `python -m src.eval --personas all --n 1 --judge fake` runs offline (uses a `FakeLLM` that returns canned scores). Real-judge mode supports `--judge same` (reuse main provider) or `--judge <model_id>`.
+- Tests: `tests/test_eval/test_deterministic.py` (each check pass + fail), `test_judge.py` (clean JSON, fenced JSON, garbage, clamping, exception path, aggregate), `test_runner_smoke.py` (a full single-persona run with FakeLLM end-to-end + the report writer).
+- 175/175 tests pass at 91% coverage.
+
+## 2026-04-29 — Milestone 2: Streamlit UI
+- `app.py` (project root) — three modes selectable in the sidebar:
+  - **Watch persona run** — pick persona, click Run, transcript renders agent-by-agent. Token/cost meter updates per turn. Graph runs in a daemon thread; UI refreshes via Streamlit reruns.
+  - **Human-in-loop** — `HumanClientAgent` blocks the graph thread on a `queue.Queue.get()` whenever the Client needs to speak; the UI shows the advisor's question and unblocks on submit. Plain "yes/no" replies normalize to `[CONFIRM]`/`[REJECT]`.
+  - **Persona editor** — form-based editor for `ClientProfile` JSON. Validate, save to `data/personas/`, or "Use as active persona" to feed the other two modes without a file write.
+- Sidebar lets users switch LLM provider/model live — the app writes to env vars before constructing the LLM, so the same persona can be A/B'd across providers without restarting.
+- `src/ui/streaming.py` — `UITurnLogger(TurnLogger)` subclass with an `on_turn` callback. Catches and swallows callback exceptions so a buggy UI handler can never crash the graph thread.
+- `src/ui/human_client.py` — `HumanClientAgent(ClientAgent)` overriding only `_respond_to_question` and `_respond_to_advice`. State machine semantics (CONFIRM → RESOLVED, REJECT → ANALYZE) preserved.
+- `src/ui/persona_editor.py` — pure data-layer round-trip helpers (`load_persona`, `profile_to_form_dict`, `form_dict_to_profile`, `save_persona`). Streamlit-free so they're unit-testable.
+- `src/main.py:run` now goes through a new `build_runtime(profile, ...)` helper so `app.py` and the CLI share wiring instead of reimplementing it.
+- 15 new UI tests (`tests/test_ui/`): callback firing + isolation, queue-backed question/advice flow with a real graph thread + a queue blocked-get, plain yes/no normalization, round-trip form/profile, validation errors, file save/load.
+- `requirements.txt` += `streamlit>=1.40`.
+- 190/190 tests pass.
+
+## 2026-04-29 — Scope expansion summary
+Final state after the three milestones:
+- LLM portability across four providers (OpenRouter / OpenAI / Anthropic / Ollama) with no agent-code changes — all driven by env vars.
+- Streamlit UI (`streamlit run app.py`) with watch mode, human-in-loop chat, and a persona editor.
+- Evaluation harness (`python -m src.eval`) producing comparable JSON + markdown reports for any provider/model combination.
+- 190 tests, ~91% coverage. README updated with new sections (LLM providers, Streamlit UI, Evaluation harness) and refreshed Trade-offs / Future Work.

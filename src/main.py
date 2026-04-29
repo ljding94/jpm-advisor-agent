@@ -15,10 +15,10 @@ from src.graph.builder import build_graph
 from src.graph.state import ConversationStatus, initial_state
 from src.observability.logger import TurnLogger, export_transcript
 from src.providers.embeddings import get_embedding_provider
-from src.providers.llm import LLMProvider, OpenRouterLLM
+from src.providers.llm import LLMProvider, get_llm_provider
 from src.schemas import ClientProfile
 from src.tools.knowledge_store import KnowledgeStore
-from src.tools.web_search import DDGSearchProvider
+from src.tools.web_search import DDGSearchProvider, WebSearchProvider
 
 PERSONA_FILES = {
     "margaret": "data/personas/margaret_conservative.json",
@@ -35,20 +35,22 @@ def _load_persona(key: str) -> ClientProfile:
 
 
 def _build_llm() -> LLMProvider:
-    """Build the OpenRouter LLM. Exits with a clear setup message if key missing."""
-    if not os.getenv("OPENROUTER_API_KEY"):
+    """Build the LLM via `LLM_PROVIDER` env var. Exits with a clear setup message on failure."""
+    try:
+        return get_llm_provider()
+    except RuntimeError as exc:
+        provider = (os.getenv("LLM_PROVIDER") or "openrouter").lower()
         print(
-            "ERROR: OPENROUTER_API_KEY is not set.\n\n"
+            f"ERROR: could not initialize LLM provider {provider!r}: {exc}\n\n"
             "Set up:\n"
             "  1. Copy .env.example to .env\n"
-            "  2. Get a key at https://openrouter.ai\n"
-            "  3. Put it in .env as OPENROUTER_API_KEY=...\n"
-            "  4. `source .env` (or use python-dotenv) and re-run.\n\n"
+            "  2. Pick a provider: LLM_PROVIDER=openrouter|openai|anthropic|ollama\n"
+            "  3. Set the matching key (OPENROUTER_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY)\n"
+            "     or run a local Ollama server for LLM_PROVIDER=ollama.\n\n"
             "If you only want to run the test suite, you don't need an API key.",
             file=sys.stderr,
         )
         sys.exit(2)
-    return OpenRouterLLM()
 
 
 def _build_kb() -> KnowledgeStore:
@@ -61,30 +63,62 @@ def _build_kb() -> KnowledgeStore:
     return store
 
 
-def run(persona_key: str, *, max_turns_hint: int = 80, verbose: bool = True) -> dict[str, Any]:
-    profile = _load_persona(persona_key)
-    print(f"[1/3] Persona: {profile.name} ({persona_key}, {profile.risk_tolerance}, age {profile.age})", file=sys.stderr)
-    print("[2/3] Initializing LLM, knowledge store, and web search...", file=sys.stderr, flush=True)
-    llm = _build_llm()
-    try:
-        kb = _build_kb()
-    except Exception as exc:
-        print(f"WARN: knowledge store unavailable ({exc}); analyst will rely on web search.", file=sys.stderr)
-        kb = None  # type: ignore[assignment]
-    web = DDGSearchProvider()
+def build_runtime(
+    profile: ClientProfile,
+    *,
+    llm: LLMProvider | None = None,
+    kb: KnowledgeStore | None = None,
+    web: WebSearchProvider | None = None,
+    client: ClientAgent | None = None,
+    verbose: bool = False,
+    turn_logger: TurnLogger | None = None,
+) -> dict[str, Any]:
+    """Wire the agents and the graph for a given profile.
 
-    client = ClientAgent(profile=profile, llm=llm)
+    Used by both the CLI and the Streamlit app. Caller should still seed the
+    conversation via `client.open_conversation(state)` before invoking.
+    """
+    llm = llm or _build_llm()
+    if kb is None:
+        try:
+            kb = _build_kb()
+        except Exception as exc:
+            print(
+                f"WARN: knowledge store unavailable ({exc}); analyst will rely on web search.",
+                file=sys.stderr,
+            )
+            kb = None
+    web = web or DDGSearchProvider()
+    client = client or ClientAgent(profile=profile, llm=llm)
     advisor = AdvisorAgent(llm=llm)
     analyst = AnalystAgent(llm=llm, knowledge_store=kb, web_search=web)
-
-    state = initial_state(profile)
-    state = client.open_conversation(state)
-    print("[3/3] Running conversation...", file=sys.stderr, flush=True)
-    turn_logger = TurnLogger()
+    turn_logger = turn_logger or TurnLogger()
     graph = build_graph(
         client=client, advisor=advisor, analyst=analyst,
         verbose=verbose, turn_logger=turn_logger,
     )
+    return {
+        "client": client,
+        "advisor": advisor,
+        "analyst": analyst,
+        "graph": graph,
+        "turn_logger": turn_logger,
+        "llm": llm,
+    }
+
+
+def run(persona_key: str, *, max_turns_hint: int = 80, verbose: bool = True) -> dict[str, Any]:
+    profile = _load_persona(persona_key)
+    print(f"[1/3] Persona: {profile.name} ({persona_key}, {profile.risk_tolerance}, age {profile.age})", file=sys.stderr)
+    print("[2/3] Initializing LLM, knowledge store, and web search...", file=sys.stderr, flush=True)
+    runtime = build_runtime(profile, verbose=verbose)
+    client = runtime["client"]
+    graph = runtime["graph"]
+    turn_logger = runtime["turn_logger"]
+
+    state = initial_state(profile)
+    state = client.open_conversation(state)
+    print("[3/3] Running conversation...", file=sys.stderr, flush=True)
     final = graph.invoke(state, config={"recursion_limit": max_turns_hint})
 
     out = export_transcript(final, persona_key=persona_key)

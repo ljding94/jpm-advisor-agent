@@ -7,6 +7,11 @@ plus DuckDuckGo web search) collaborate over a hard-routed state machine to
 produce a sourced, disclaimer-bearing recommendation that the client confirms or
 rejects.
 
+The runtime is provider-agnostic (OpenRouter, OpenAI, Anthropic, or local
+Ollama), ships a Streamlit UI for live runs and human-in-loop sessions, and
+includes an evaluation harness combining deterministic structural checks with
+an LLM-as-judge rubric.
+
 ## Architecture
 
 ```mermaid
@@ -79,10 +84,80 @@ python -m src.tools.ingest --reset
 python -m src.main --persona david
 # or all three:
 python -m src.main --all
+
+# 6. Or launch the Streamlit UI
+streamlit run app.py
+
+# 7. Or run the evaluation harness
+python -m src.eval --personas all --n 1 --judge fake
 ```
 
-The runner writes to `examples/sample_conversation_<persona>.md`. Tests do not
-require an API key (they use a `FakeLLM` and a `FakeEmbedder`).
+The CLI runner writes to `examples/sample_conversation_<persona>.md`. The eval
+harness writes to `evals/reports/<timestamp>/`. Tests do not require an API key
+(they use a `FakeLLM` and a `FakeEmbedder`).
+
+## LLM providers
+
+The runtime uses an `LLMProvider` interface; pick one via the `LLM_PROVIDER`
+env var. Each provider reads its own credentials.
+
+| `LLM_PROVIDER`  | Credential          | Default model              | Notes |
+| ---             | ---                 | ---                        | --- |
+| `openrouter` (default) | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4` | Multi-model gateway, single key. |
+| `openai`        | `OPENAI_API_KEY`    | `gpt-4o-mini`              | Native OpenAI Chat Completions API. |
+| `anthropic`     | `ANTHROPIC_API_KEY` | `claude-sonnet-4-6`        | Native Anthropic Messages API; better tool-use + native prompt caching. |
+| `ollama`        | (none — local)      | `llama3.1:8b`              | Talks to `OLLAMA_BASE_URL`; zero cost, works offline. |
+
+Embeddings have an analogous `EMBEDDING_PROVIDER` env var: `auto` (default —
+OpenRouter if a key is present, else local sentence-transformers), `openrouter`,
+`openai`, or `local`. See `.env.example` for all knobs.
+
+## Streamlit UI
+
+Run `streamlit run app.py` to open a three-mode UI:
+
+1. **Watch persona run** — pick a built-in persona (`margaret` / `david` /
+   `priya`) or a custom one from the editor, click Run, and watch the live
+   transcript stream agent-by-agent. Token and cost meters update per turn.
+2. **Human-in-loop** — you become the Client. The Advisor and Analyst stay
+   LLM-driven; whenever the graph needs the Client to speak, the UI shows the
+   advisor's question and waits for you to type. Plain "yes/no" replies are
+   normalized to `[CONFIRM]`/`[REJECT]`.
+3. **Persona editor** — form-based editor for `ClientProfile` JSON (age, risk
+   tolerance, assets, investments, goals, income). Validate, save to
+   `data/personas/<key>.json`, or "Use as active" to feed the other modes.
+
+Provider and model can be switched live from the sidebar — the app writes to
+the relevant env vars before constructing the LLM, so you can A/B
+OpenRouter/OpenAI/Anthropic/Ollama against the same persona without restarting.
+
+## Evaluation harness
+
+```bash
+# Offline CI run with a canned-score judge (no API key required for the judge):
+python -m src.eval --personas all --n 1 --judge fake
+
+# Real run with the same provider as the main LLM acting as judge:
+python -m src.eval --personas all --n 2 --judge same
+
+# Real run with a specific judge model id:
+python -m src.eval --personas david,priya --n 3 --judge claude-sonnet-4-6
+```
+
+Each run produces `evals/reports/<timestamp>/`:
+
+- `results.json` — the full per-run record (state, transcript, checks, judge).
+- `report.md` — a human-readable summary with a pass/fail table, aggregates,
+  judge-score histogram, and any failure detail.
+
+**Deterministic checks** (in `src/eval/deterministic.py`): conversation reached
+`RESOLVED`, all three agent roles spoke, disclaimer present, no PII patterns
+leaked into any message, no banned phrases, no named tickers, analyst cited
+sources, cost under budget, `state.errors` clean.
+
+**LLM-as-judge** (in `src/eval/judge.py`): rubric-based 1–5 scores on
+`risk_alignment`, `goal_alignment`, `specificity`, `coherence`, `safety`. Uses
+the chosen `LLMProvider`, so any provider can act as judge.
 
 ## Sample conversation snippet
 
@@ -134,8 +209,16 @@ Full transcripts: [`examples/sample_conversation_margaret.md`](examples/sample_c
   no broker integration. The advice is principle-level, not actionable trades.
 - **Single-conversation only.** No persistence of state across runs; no
   multi-tenant session memory. Each invocation starts fresh.
-- **No UI / API surface.** CLI only. The graph is invoked synchronously via
-  `python -m src.main`; no streaming output, no websocket, no FastAPI wrapper.
+- **Streamlit UI is single-user, single-session.** No auth, no concurrent
+  sessions, no persistent history. The graph runs in a daemon thread; the
+  current implementation polls for state changes via short timed reruns
+  (~600 ms), which is good enough for a demo but would lose events under load.
+  A FastAPI + WebSocket backend would scale better.
+- **Eval harness scope.** The deterministic checks reuse the same regex and
+  guardrail predicates the runtime uses, so they catch the same things — they
+  do not catch novel LLM failure modes (jailbreaks, persona drift). The judge
+  rubric is five criteria scored 1–5; it does not evaluate factual correctness
+  of specific numerical claims.
 - **Async web search is a thin shim.** `WebSearchProvider.search_async` runs
   the sync `ddgs` call on a worker thread via `asyncio.to_thread` rather than
   using a native async HTTP client. Satisfies the spec's interface requirement
@@ -164,6 +247,13 @@ Full transcripts: [`examples/sample_conversation_margaret.md`](examples/sample_c
   checkpointer (already a peer dependency).
 - Add a richer `ClientProfile` (account types, tax brackets, dependents) and
   use it to bias the strategy beyond the three categorical labels.
+- Replace the Streamlit poll loop with native LangGraph streaming
+  (`graph.astream()`) so the UI doesn't need a separate worker thread.
+- Add `streamlit.testing` coverage for the UI itself (currently only the UI
+  helpers are unit-tested; full page rendering is not).
+- Persist eval reports to a comparable schema across providers so you can chart
+  judge-score deltas between, say, GPT-4o-mini and Claude Sonnet on the same
+  personas.
 - Build a thin FastAPI surface for embedding the agent in a chat UI.
 - Refresh the `MODEL_PRICES` table automatically (e.g., from OpenRouter's
   pricing API) instead of hand-maintaining it.
@@ -184,18 +274,22 @@ The suite is offline by design — `FakeLLM` and `FakeEmbedder` fixtures in
 ```
 src/
 ├── agents/           # base, client, advisor, analyst
+├── eval/             # runner, deterministic checks, LLM-as-judge, report writer
 ├── factories/        # agent_factory
 ├── graph/            # state, routing, builder
 ├── guardrails/       # pii, output_filter, limits
 ├── observability/    # logger
-├── providers/        # llm (OpenRouter), embeddings (OpenRouter + sentence-transformers)
+├── providers/        # llm (openrouter, openai, anthropic, ollama), embeddings
 ├── schemas/          # messages, client_profile, advice
 ├── strategies/       # risk_profile
 ├── tools/            # web_search, knowledge_store, ingest CLI
+├── ui/               # streaming logger, human-client agent, persona editor
 └── main.py
+app.py                # Streamlit entry point — three-mode UI
 data/
 ├── knowledge_base/   # 6 finance markdown docs
 └── personas/         # 3 persona JSONs (Margaret / David / Priya)
-tests/                # 118 tests, offline
+tests/                # 190 tests, offline
 examples/             # generated sample_conversation_<persona>.md
+evals/reports/        # generated eval results (results.json + report.md)
 ```

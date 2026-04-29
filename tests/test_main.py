@@ -56,20 +56,14 @@ def test_main_run_writes_transcript(persona_key, tmp_path, monkeypatch, fake_emb
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
 
     from src import main as main_mod
-    from src.providers import llm as llm_mod
-    from src.tools import web_search as ws_mod
 
     fake_llm = _scripted_llm(persona_key)
-
-    def _fake_openrouter_llm(*_a, **_kw):
-        return fake_llm
 
     class _NoOpWeb:
         def search(self, query, max_results=5):
             return []
 
-    monkeypatch.setattr(llm_mod, "OpenRouterLLM", lambda: fake_llm)
-    monkeypatch.setattr(main_mod, "OpenRouterLLM", lambda: fake_llm)
+    monkeypatch.setattr(main_mod, "get_llm_provider", lambda: fake_llm)
     monkeypatch.setattr(main_mod, "DDGSearchProvider", lambda: _NoOpWeb())
     monkeypatch.setattr(main_mod, "get_embedding_provider", lambda: fake_embedder)
 

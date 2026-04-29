@@ -45,6 +45,36 @@ class OpenRouterEmbeddings(EmbeddingProvider):
         return [item.embedding for item in resp.data]
 
 
+class OpenAIEmbeddings(EmbeddingProvider):
+    """Native OpenAI embeddings (api.openai.com)."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
+    ) -> None:
+        from openai import OpenAI
+
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if not self.api_key:
+            raise RuntimeError("OPENAI_API_KEY not set")
+        self.model = model or os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
+        self.base_url = base_url or os.getenv("OPENAI_BASE_URL")
+        if self.base_url:
+            self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        else:
+            self._client = OpenAI(api_key=self.api_key)
+        # text-embedding-3-small = 1536 dims; -large = 3072. Adjust if needed.
+        self.dimension = 3072 if "large" in self.model else 1536
+
+    def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        if not texts:
+            return []
+        resp = self._client.embeddings.create(model=self.model, input=list(texts))
+        return [item.embedding for item in resp.data]
+
+
 class LocalEmbeddings(EmbeddingProvider):
     """Sentence-transformers fallback. No network/API key required."""
 
@@ -66,10 +96,26 @@ class LocalEmbeddings(EmbeddingProvider):
 
 
 def get_embedding_provider() -> EmbeddingProvider:
-    """Return OpenRouter embeddings if API key is set, else local."""
-    if os.getenv("OPENROUTER_API_KEY"):
-        try:
-            return OpenRouterEmbeddings()
-        except Exception:  # pragma: no cover - defensive fallback
-            pass
-    return LocalEmbeddings()
+    """Dispatch on `EMBEDDING_PROVIDER` env var.
+
+    Values: "auto" (default — OpenRouter if key present, else local),
+    "openrouter", "openai", "local".
+    """
+    name = (os.getenv("EMBEDDING_PROVIDER") or "auto").lower().strip()
+    if name == "openrouter":
+        return OpenRouterEmbeddings()
+    if name == "openai":
+        return OpenAIEmbeddings()
+    if name == "local":
+        return LocalEmbeddings()
+    if name == "auto":
+        if os.getenv("OPENROUTER_API_KEY"):
+            try:
+                return OpenRouterEmbeddings()
+            except Exception:  # pragma: no cover - defensive fallback
+                pass
+        return LocalEmbeddings()
+    raise ValueError(
+        f"Unknown EMBEDDING_PROVIDER={name!r}. "
+        "Expected one of: auto, openrouter, openai, local."
+    )

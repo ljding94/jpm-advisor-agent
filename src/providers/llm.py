@@ -26,18 +26,39 @@ class Usage:
         return self.prompt_tokens + self.completion_tokens
 
 
-# OpenRouter price table (USD per 1M tokens). Approximate, updated 2025-Q1.
+# Price table (USD per 1M tokens). Approximate.
 # Used as a heuristic when the API doesn't return an explicit cost field.
 # Format: {model_id: (input_price_per_1m, output_price_per_1m)}
+# Both OpenRouter-style ("anthropic/claude-...") and native-style ("claude-...")
+# IDs are listed so the same lookup works regardless of provider.
 MODEL_PRICES: dict[str, tuple[float, float]] = {
+    # OpenRouter style
     "anthropic/claude-sonnet-4": (3.00, 15.00),
+    "anthropic/claude-sonnet-4-6": (3.00, 15.00),
     "anthropic/claude-opus-4": (15.00, 75.00),
+    "anthropic/claude-opus-4-7": (15.00, 75.00),
     "anthropic/claude-haiku-4": (0.80, 4.00),
+    "anthropic/claude-haiku-4-5": (1.00, 5.00),
     "openai/gpt-4o": (2.50, 10.00),
     "openai/gpt-4o-mini": (0.15, 0.60),
+    "openai/gpt-4.1": (2.00, 8.00),
+    "openai/gpt-4.1-mini": (0.40, 1.60),
     "openai/o1-mini": (1.10, 4.40),
     "google/gemini-2.0-flash-001": (0.10, 0.40),
     "meta-llama/llama-3.1-70b-instruct": (0.40, 0.40),
+    # Native Anthropic IDs
+    "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-opus-4-7": (15.00, 75.00),
+    "claude-haiku-4-5": (1.00, 5.00),
+    # Native OpenAI IDs
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4.1": (2.00, 8.00),
+    "gpt-4.1-mini": (0.40, 1.60),
+    # Local — free
+    "llama3.1:8b": (0.0, 0.0),
+    "llama3.1:70b": (0.0, 0.0),
+    "qwen2.5:7b": (0.0, 0.0),
 }
 DEFAULT_PRICE = (1.00, 3.00)  # cautious fallback for unknown models
 
@@ -147,4 +168,24 @@ class OpenRouterLLM(LLMProvider):
 
 
 def get_llm_provider() -> LLMProvider:
-    return OpenRouterLLM()
+    """Dispatch on `LLM_PROVIDER` env var.
+
+    Values: "openrouter" (default), "openai", "anthropic", "ollama".
+    Each provider reads its own credentials from the environment.
+    """
+    name = (os.getenv("LLM_PROVIDER") or "openrouter").lower().strip()
+    if name == "openrouter":
+        return OpenRouterLLM()
+    if name == "openai":
+        from src.providers.openai_llm import OpenAILLM
+        return OpenAILLM()
+    if name == "anthropic":
+        from src.providers.anthropic_llm import AnthropicLLM
+        return AnthropicLLM()
+    if name == "ollama":
+        from src.providers.ollama_llm import OllamaLLM
+        return OllamaLLM()
+    raise ValueError(
+        f"Unknown LLM_PROVIDER={name!r}. "
+        "Expected one of: openrouter, openai, anthropic, ollama."
+    )
