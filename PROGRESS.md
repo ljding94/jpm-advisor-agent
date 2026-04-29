@@ -114,3 +114,9 @@ Remaining spec gaps: #3 `state.errors` unused, #4 web_search not async, #5 missi
 - **#4 Async web search**: added `WebSearchProvider.search_async` to the abstract interface with a default implementation that dispatches the sync `search` to `asyncio.to_thread`. Test verifies it doesn't block the event loop. Trade-off documented in README — it's a thin shim, not native async HTTP, since the rest of the agent path is sync.
 - **#5 Edge-case tests** (called out in the spec but missing): `tests/test_edge_cases.py` covers (a) client supplies contradictory info → still resolves with both messages preserved in the transcript, and (b) BOTH KB and web search throw → analyst still produces a valid report via the planning-principles fallback, errors appear in `state.errors`, conversation reaches RESOLVED.
 - 134 tests pass at 94% coverage. All five spec-audit gaps are now closed.
+
+## 2026-04-28 — Rename to `jpm-advisor-agent`
+- Renamed package in `pyproject.toml` from `jpm-advisor` to `jpm-advisor-agent`.
+- GitHub repo renamed: `ljding94/jpm-advisor` → `ljding94/jpm-advisor-agent` (URL updated, old URL still redirects).
+- Local folder renamed: `/Users/ldq/Work/jpm-advisor` → `/Users/ldq/Work/jpm-advisor-agent`.
+- SPEC.md and the earlier PROGRESS.md entries kept unchanged (they record the project state at the time of writing).
