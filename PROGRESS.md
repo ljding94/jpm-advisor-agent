@@ -94,3 +94,14 @@ Audited the project against SPEC.md. All 10 acceptance criteria pass. Outstandin
 - Trade-offs section in README already documents these honestly.
 
 Working on #1 and #2 first (the structural ones).
+
+## 2026-04-28 — Closed gaps #1 (TurnLogger) and #2 (cost tracking)
+- `LLMProvider` now exposes `last_usage` (a `Usage` dataclass with prompt/completion tokens, cost_usd, model) and `cumulative_*` counters. `OpenRouterLLM.complete` reads tokens from the API `usage` field and estimates cost via a per-model price table (`MODEL_PRICES` in `src/providers/llm.py`).
+- `TurnLogger` extended with `total_input_tokens / total_output_tokens / total_cost_usd` accumulators, `summary()`, and `write_jsonl()`.
+- `build_graph(...)` accepts an optional `turn_logger`; the node wrapper snapshots `cumulative_*` before/after each `agent.process()` call so multi-LLM-call nodes attribute correctly.
+- `LimitState.total_cost_usd` is fed from the live `TurnLogger` total — the cost limit can now actually trip (verified by `test_cost_limit_trips_termination`).
+- `main.py` builds a `TurnLogger`, passes it to the graph, writes `examples/sample_conversation_<persona>.log.jsonl` next to the markdown transcript, and prints a one-line usage summary at the end.
+- `FakeLLM` updated to track the same fields so tests exercise the cost path without an API key.
+- 123/123 tests pass at 94% coverage. Live run on `david`: 12 turns, 8,844 in + 1,265 out tokens, ~$0.0455 (well under the $2 cap).
+
+Remaining spec gaps: #3 `state.errors` unused, #4 web_search not async, #5 missing edge-case tests. None of these block usability — leaving for a future pass.

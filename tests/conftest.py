@@ -10,6 +10,7 @@ from typing import Any, Sequence
 import pytest
 
 from src.providers.embeddings import EmbeddingProvider
+from src.providers.llm import Usage
 from src.schemas import ClientProfile
 
 
@@ -54,26 +55,48 @@ class FakeLLM:
     matching, and `default` as a final fallback.
     """
 
+    model = "fake/llm"
+
     def __init__(
         self,
         script: list[str] | None = None,
         marker_responses: dict[str, str] | None = None,
         default: str = "{}",
+        cost_per_call_usd: float = 0.001,
     ) -> None:
         self.script = list(script or [])
         self.marker_responses = dict(marker_responses or {})
         self.default = default
         self.calls: list[dict[str, Any]] = []
+        self.cost_per_call_usd = cost_per_call_usd
+        self.last_usage = Usage(model=self.model)
+        self.cumulative_prompt_tokens = 0
+        self.cumulative_completion_tokens = 0
+        self.cumulative_cost_usd = 0.0
 
     def complete(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
         self.calls.append({"messages": messages, "kwargs": kwargs})
         joined = "\n".join(m.get("content", "") for m in messages).lower()
-        for marker, response in self.marker_responses.items():
+        response = self.default
+        for marker, resp in self.marker_responses.items():
             if marker.lower() in joined:
-                return response
-        if self.script:
-            return self.script.pop(0)
-        return self.default
+                response = resp
+                break
+        else:
+            if self.script:
+                response = self.script.pop(0)
+        prompt_tokens = max(1, sum(len(m.get("content", "")) for m in messages) // 4)
+        completion_tokens = max(1, len(response) // 4)
+        self.last_usage = Usage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cost_usd=self.cost_per_call_usd,
+            model=self.model,
+        )
+        self.cumulative_prompt_tokens += prompt_tokens
+        self.cumulative_completion_tokens += completion_tokens
+        self.cumulative_cost_usd += self.cost_per_call_usd
+        return response
 
 
 @pytest.fixture

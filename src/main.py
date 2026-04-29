@@ -13,7 +13,7 @@ from src.agents.analyst import AnalystAgent
 from src.agents.client import ClientAgent
 from src.graph.builder import build_graph
 from src.graph.state import ConversationStatus, initial_state
-from src.observability.logger import export_transcript
+from src.observability.logger import TurnLogger, export_transcript
 from src.providers.embeddings import get_embedding_provider
 from src.providers.llm import LLMProvider, OpenRouterLLM
 from src.schemas import ClientProfile
@@ -80,11 +80,24 @@ def run(persona_key: str, *, max_turns_hint: int = 80, verbose: bool = True) -> 
     state = initial_state(profile)
     state = client.open_conversation(state)
     print("[3/3] Running conversation...", file=sys.stderr, flush=True)
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst, verbose=verbose)
+    turn_logger = TurnLogger()
+    graph = build_graph(
+        client=client, advisor=advisor, analyst=analyst,
+        verbose=verbose, turn_logger=turn_logger,
+    )
     final = graph.invoke(state, config={"recursion_limit": max_turns_hint})
 
     out = export_transcript(final, persona_key=persona_key)
+    log_path = turn_logger.write_jsonl(Path("examples") / f"sample_conversation_{persona_key}.log.jsonl")
+    summary = turn_logger.summary()
     print(f"\nDone. Wrote transcript: {out}", file=sys.stderr)
+    print(f"Wrote turn log:    {log_path}", file=sys.stderr)
+    print(
+        f"Usage: {summary['turns']} turns, "
+        f"{summary['total_input_tokens']} in + {summary['total_output_tokens']} out tokens, "
+        f"~${summary['total_cost_usd']:.4f}",
+        file=sys.stderr,
+    )
     print(f"Final status: {final['status'].value}", file=sys.stderr)
     if final.get("termination_reason"):
         print(f"  Termination reason: {final['termination_reason']}", file=sys.stderr)

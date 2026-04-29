@@ -1,0 +1,12 @@
+{"turn": 1, "agent": "advisor", "action": "question->client", "duration_ms": 3965.6418340018718, "input_tokens": 658, "output_tokens": 118, "cost_usd": 0.003744, "extra": {}}
+{"turn": 2, "agent": "client", "action": "answer->advisor", "duration_ms": 2989.9792079995677, "input_tokens": 548, "output_tokens": 92, "cost_usd": 0.0030239999999999998, "extra": {}}
+{"turn": 3, "agent": "advisor", "action": "question->client", "duration_ms": 2058.656459001213, "input_tokens": 774, "output_tokens": 77, "cost_usd": 0.003477000000000001, "extra": {}}
+{"turn": 4, "agent": "client", "action": "answer->advisor", "duration_ms": 3753.5763749983744, "input_tokens": 548, "output_tokens": 100, "cost_usd": 0.003144000000000001, "extra": {}}
+{"turn": 5, "agent": "advisor", "action": "question->client", "duration_ms": 2613.717500000348, "input_tokens": 898, "output_tokens": 88, "cost_usd": 0.004014, "extra": {}}
+{"turn": 6, "agent": "client", "action": "answer->advisor", "duration_ms": 2954.3569589986873, "input_tokens": 548, "output_tokens": 92, "cost_usd": 0.003023999999999999, "extra": {}}
+{"turn": 7, "agent": "advisor", "action": "question->client", "duration_ms": 3330.217749997246, "input_tokens": 1014, "output_tokens": 132, "cost_usd": 0.005021999999999999, "extra": {}}
+{"turn": 8, "agent": "client", "action": "answer->advisor", "duration_ms": 4314.849790996959, "input_tokens": 647, "output_tokens": 110, "cost_usd": 0.0035910000000000004, "extra": {}}
+{"turn": 9, "agent": "advisor", "action": "task->analyst", "duration_ms": 4810.163582998939, "input_tokens": 1247, "output_tokens": 197, "cost_usd": 0.006696000000000004, "extra": {}}
+{"turn": 10, "agent": "analyst", "action": "report->advisor", "duration_ms": 8890.256124999723, "input_tokens": 656, "output_tokens": 220, "cost_usd": 0.005268000000000002, "extra": {}}
+{"turn": 11, "agent": "advisor", "action": "advice->client", "duration_ms": 0.1250000022992026, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "extra": {}}
+{"turn": 12, "agent": "client", "action": "confirmation->advisor", "duration_ms": 1796.0862500003714, "input_tokens": 1306, "output_tokens": 39, "cost_usd": 0.004503, "extra": {}}

@@ -146,6 +146,10 @@ Full transcripts: [`examples/sample_conversation_margaret.md`](examples/sample_c
 - **No test for the live OpenRouter path.** All LLM tests use `FakeLLM`; all
   embedding tests use a deterministic hash embedder. The OpenRouter wiring is
   exercised only by integration smoke (mocked) and by manual runs.
+- **Cost estimation is heuristic.** Token counts come from the OpenRouter
+  `usage` field, but per-token prices come from a small in-process table
+  (`MODEL_PRICES` in `src/providers/llm.py`) that may drift from current
+  pricing. Treat the cost summary as a sanity check, not an invoice.
 
 ## Future Work
 
@@ -156,9 +160,8 @@ Full transcripts: [`examples/sample_conversation_margaret.md`](examples/sample_c
 - Add a richer `ClientProfile` (account types, tax brackets, dependents) and
   use it to bias the strategy beyond the three categorical labels.
 - Build a thin FastAPI surface for embedding the agent in a chat UI.
-- Add cost telemetry: count tokens via the OpenRouter usage field, sum to
-  `total_cost_usd`, and trip `MAX_TOTAL_COST_USD` in real runs (currently the
-  hook is wired but unused).
+- Refresh the `MODEL_PRICES` table automatically (e.g., from OpenRouter's
+  pricing API) instead of hand-maintaining it.
 - Replace the named-ticker regex with a structured-output schema that prevents
   ticker mentions at the model level.
 

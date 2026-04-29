@@ -26,24 +26,62 @@ class TurnRecord:
 
 
 class TurnLogger:
-    """Observer: records each agent turn as a structured JSON line."""
+    """Observer: records each agent turn as a structured JSON line.
+
+    Tracks cumulative tokens and cost so the runtime can enforce the
+    `MAX_TOTAL_COST_USD` limit.
+    """
 
     def __init__(self) -> None:
         self.records: list[TurnRecord] = []
+        self.total_input_tokens: int = 0
+        self.total_output_tokens: int = 0
+        self.total_cost_usd: float = 0.0
 
-    def record_turn(self, *, agent: str, action: str, started_at: float, **extra) -> None:
+    def record_turn(
+        self,
+        *,
+        agent: str,
+        action: str,
+        started_at: float,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cost_usd: float = 0.0,
+        **extra,
+    ) -> TurnRecord:
         rec = TurnRecord(
             turn=len(self.records) + 1,
             agent=agent,
             action=action,
             duration_ms=(time.monotonic() - started_at) * 1000.0,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
             extra=extra,
         )
         self.records.append(rec)
+        self.total_input_tokens += input_tokens
+        self.total_output_tokens += output_tokens
+        self.total_cost_usd += cost_usd
         logger.info("turn", extra={"record": asdict(rec)})
+        return rec
 
     def to_jsonl(self) -> str:
         return "\n".join(json.dumps(asdict(r), default=str) for r in self.records)
+
+    def write_jsonl(self, path: str | Path) -> Path:
+        out = Path(path)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(self.to_jsonl() + ("\n" if self.records else ""), encoding="utf-8")
+        return out
+
+    def summary(self) -> dict:
+        return {
+            "turns": len(self.records),
+            "total_input_tokens": self.total_input_tokens,
+            "total_output_tokens": self.total_output_tokens,
+            "total_cost_usd": round(self.total_cost_usd, 6),
+        }
 
 
 def render_transcript(state: AdvisorState, *, persona_key: str) -> str:
