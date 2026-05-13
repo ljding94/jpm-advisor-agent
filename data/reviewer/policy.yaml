@@ -1,0 +1,91 @@
+# Reviewer policy: rules the ReviewerAgent applies to advisor-authored messages
+# before they reach the client. Edit this file to add/remove/tune rules without
+# touching agent code.
+#
+# Each rule has:
+#   id:        stable identifier (used in verdict metadata and tests)
+#   severity:  block | revise   (block = bounce to advisor; revise = reviewer
+#              fixes it inline)
+#   applies_to: list of MessageType values this rule checks (advice, question, ...)
+#   description: human-readable rule; shown to the LLM in the policy prompt
+#
+# The reviewer combines deterministic checks (guardrails/output_filter) with an
+# LLM judgement against `description` text.
+
+version: 1
+
+rules:
+  # ---------- Disclosure & disclaimer ----------
+  - id: disclosure.standard_disclaimer
+    severity: revise
+    applies_to: [advice]
+    description: >
+      Every ADVICE message must contain the phrase "not financial advice" (or an
+      equivalent disclaimer). If missing, append the standard disclaimer.
+
+  # ---------- Prohibited claims ----------
+  - id: claims.no_guarantees
+    severity: block
+    applies_to: [advice, question]
+    description: >
+      Never imply guaranteed returns, risk-free outcomes, or that an investment
+      "cannot lose". Probabilistic / historical-tendency framing only.
+
+  - id: claims.no_specific_tickers
+    severity: revise
+    applies_to: [advice, question]
+    description: >
+      Do not name individual tickers, specific mutual funds, or specific brokers.
+      Stay at the principle / asset-class level. If a ticker leaks through,
+      replace it with the asset class (e.g. "a broad US equity index fund").
+
+  # ---------- Suitability ----------
+  - id: suitability.respect_risk_profile
+    severity: block
+    applies_to: [advice]
+    description: >
+      Recommendations must be consistent with the client's stated risk tolerance
+      (conservative / moderate / aggressive) and time horizon. A conservative
+      client should not receive an equity-heavy allocation; an aggressive young
+      client should not be steered into bonds-heavy.
+
+  - id: suitability.respect_time_horizon
+    severity: block
+    applies_to: [advice]
+    description: >
+      Allocations must reflect the client's time horizon. Short horizons (<5y)
+      should not be paired with high equity weight; long horizons (>15y) should
+      not be paired with bonds-heavy allocations for moderate/aggressive clients.
+
+  # ---------- Scope & professional boundaries ----------
+  - id: scope.no_legal_or_tax_advice
+    severity: revise
+    applies_to: [advice, question]
+    description: >
+      Do not give legal or tax advice as if from a qualified professional. If a
+      bullet ventures into legal/tax territory, add "consult a qualified tax
+      professional" or rewrite to keep it at the principle level.
+
+  - id: scope.no_pii_solicitation
+    severity: block
+    applies_to: [question]
+    description: >
+      Do not ask the client for sensitive PII (SSN, full account numbers, exact
+      balances tied to identifiers, passwords). Asking about age, goals, income
+      ranges, risk tolerance is fine.
+
+  # ---------- Tone & process ----------
+  - id: tone.professional_neutral
+    severity: revise
+    applies_to: [advice, question]
+    description: >
+      Avoid hype, urgency, or fear-based language ("act now", "don't miss out",
+      "you'll lose everything if..."). Keep tone neutral and professional.
+
+  - id: process.grounded_in_analysis
+    severity: revise
+    applies_to: [advice]
+    description: >
+      Advice should reference the analyst's findings or stated planning
+      principles. Recommendations that appear to come from nowhere — no
+      rationale, no sources — should be flagged.

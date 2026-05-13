@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 from src.agents.advisor import AdvisorAgent
 from src.agents.analyst import AnalystAgent
 from src.agents.client import ClientAgent
+from src.agents.reviewer import ReviewerAgent
 from src.graph.builder import build_graph
 from src.graph.state import ConversationStatus, initial_state
 from src.schemas import AgentMessage, AgentRole, MessageType
@@ -57,6 +58,7 @@ def test_contradictory_client_info_still_resolves(david_profile, fake_embedder):
     client = ClientAgent(profile=david_profile, llm=llm)
     advisor = AdvisorAgent(llm=llm)
     analyst = AnalystAgent(llm=llm, knowledge_store=None, web_search=FakeWebSearchProvider())
+    reviewer = ReviewerAgent(llm=llm)
 
     state = client.open_conversation(initial_state(david_profile))
 
@@ -78,7 +80,7 @@ def test_contradictory_client_info_still_resolves(david_profile, fake_embedder):
         )
     )
 
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst)
+    graph = build_graph(client=client, advisor=advisor, analyst=analyst, reviewer=reviewer)
     final = graph.invoke(state, config={"recursion_limit": 50})
 
     assert final["status"] is ConversationStatus.RESOLVED
@@ -119,9 +121,10 @@ def test_full_analyst_tool_failure_graceful_degradation(david_profile, fake_llm)
     analyst = AnalystAgent(
         llm=fake_llm, knowledge_store=exploding_kb, web_search=ExplodingWeb()
     )
+    reviewer = ReviewerAgent(llm=fake_llm)
 
     state = client.open_conversation(initial_state(david_profile))
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst)
+    graph = build_graph(client=client, advisor=advisor, analyst=analyst, reviewer=reviewer)
     final = graph.invoke(state, config={"recursion_limit": 50})
 
     # Despite both tools failing, the graph reaches RESOLVED.

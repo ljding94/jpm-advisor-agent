@@ -51,7 +51,8 @@ def _good_state(all_personas):
         _msg(AgentRole.CLIENT, AgentRole.ADVISOR, "I want to plan for retirement."),
         _msg(AgentRole.ADVISOR, AgentRole.ANALYST, "Research balanced allocations."),
         _msg(AgentRole.ANALYST, AgentRole.ADVISOR, "Diversified mix is appropriate."),
-        _msg(AgentRole.ADVISOR, AgentRole.CLIENT, "Here is my recommendation."),
+        _msg(AgentRole.ADVISOR, AgentRole.REVIEWER, "Here is my recommendation."),
+        _msg(AgentRole.REVIEWER, AgentRole.CLIENT, "Here is my recommendation."),
     ]
     state["analyst_findings"] = AnalystReport(
         query="balanced allocation",

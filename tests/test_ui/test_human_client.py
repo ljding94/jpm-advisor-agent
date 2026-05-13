@@ -15,7 +15,7 @@ from src.ui.human_client import HumanClientAgent
 
 def _seed_with_question(state, question="What's your goal?"):
     msg = AgentMessage(
-        sender=AgentRole.ADVISOR,
+        sender=AgentRole.REVIEWER,
         recipient=AgentRole.CLIENT,
         content=question,
         message_type=MessageType.QUESTION,
@@ -27,7 +27,7 @@ def _seed_with_question(state, question="What's your goal?"):
 
 def _seed_with_advice(state, advice="Buy diversified ETFs."):
     msg = AgentMessage(
-        sender=AgentRole.ADVISOR,
+        sender=AgentRole.REVIEWER,
         recipient=AgentRole.CLIENT,
         content=advice,
         message_type=MessageType.ADVICE,

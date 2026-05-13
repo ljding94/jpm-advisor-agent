@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 from src.agents.advisor import AdvisorAgent
 from src.agents.analyst import AnalystAgent
 from src.agents.client import ClientAgent
+from src.agents.reviewer import ReviewerAgent
 from src.graph.builder import build_graph
 from src.graph.state import AdvisorState, ConversationStatus, append_error, initial_state
 from src.guardrails.limits import MAX_TOTAL_COST_USD
@@ -98,9 +99,10 @@ def test_limit_breach_logs_to_state_errors(david_profile):
     client = ClientAgent(profile=david_profile, llm=expensive)
     advisor = AdvisorAgent(llm=expensive)
     analyst = AnalystAgent(llm=expensive, knowledge_store=None, web_search=FakeWebSearchProvider())
+    reviewer = ReviewerAgent(llm=expensive)
     log = TurnLogger()
     state = client.open_conversation(initial_state(david_profile))
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst, turn_logger=log)
+    graph = build_graph(client=client, advisor=advisor, analyst=analyst, reviewer=reviewer, turn_logger=log)
     final = graph.invoke(state, config={"recursion_limit": 30})
 
     assert final["status"] is ConversationStatus.TERMINATED

@@ -98,6 +98,7 @@ ROLE_AVATAR = {
     AgentRole.CLIENT: "🧑",
     AgentRole.ADVISOR: "💼",
     AgentRole.ANALYST: "🔬",
+    AgentRole.REVIEWER: "⚖️",
 }
 
 
@@ -358,7 +359,7 @@ def _render_transcript_from_holder() -> None:
         st.info("Click **Run** to start.")
         return
     for m in transcript:
-        avatar = ROLE_AVATAR.get(m.sender, "•")
+        avatar = ROLE_AVATAR.get(m.sender, "💬")
         with st.chat_message(m.sender.value, avatar=avatar):
             st.markdown(
                 f"**{m.sender.value} → {m.recipient.value}**  \n_{m.message_type.value}_"

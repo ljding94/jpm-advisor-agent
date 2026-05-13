@@ -9,6 +9,7 @@ import pytest
 from src.agents.advisor import AdvisorAgent
 from src.agents.analyst import AnalystAgent
 from src.agents.client import ClientAgent
+from src.agents.reviewer import ReviewerAgent
 from src.graph.builder import build_graph
 from src.graph.state import ConversationStatus, initial_state
 from src.schemas import AgentRole, ClientProfile
@@ -85,11 +86,12 @@ def test_graph_runs_to_resolved(persona_key, tmp_path, fake_embedder):
     client = ClientAgent(profile=profile, llm=llm)
     advisor = AdvisorAgent(llm=llm)
     analyst = AnalystAgent(llm=llm, knowledge_store=kb, web_search=web)
+    reviewer = ReviewerAgent(llm=llm)
 
     state = initial_state(profile)
     state = client.open_conversation(state)
 
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst)
+    graph = build_graph(client=client, advisor=advisor, analyst=analyst, reviewer=reviewer)
     final = graph.invoke(state, config={"recursion_limit": 50})
 
     assert final["status"] is ConversationStatus.RESOLVED, (
@@ -102,6 +104,10 @@ def test_graph_runs_to_resolved(persona_key, tmp_path, fake_embedder):
     assert AgentRole.ADVISOR in senders
     assert AgentRole.ANALYST in senders, (
         f"analyst never produced output for {persona_key}"
+    )
+    # Reviewer must always be present — all advisor→client traffic flows through it.
+    assert AgentRole.REVIEWER in senders, (
+        f"reviewer never spoke for {persona_key}"
     )
 
     # Final confirmation message metadata flag.
@@ -134,9 +140,10 @@ def test_graph_terminates_when_max_turns_breached(tmp_path, fake_embedder):
         knowledge_store=_build_kb(tmp_path, fake_embedder),
         web_search=FakeWebSearchProvider(),
     )
+    reviewer = ReviewerAgent(llm=llm)
     state = initial_state(profile)
     state = client.open_conversation(state)
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst)
+    graph = build_graph(client=client, advisor=advisor, analyst=analyst, reviewer=reviewer)
     final = graph.invoke(state, config={"recursion_limit": 80})
     assert final["status"] is ConversationStatus.TERMINATED
     assert final.get("termination_reason")

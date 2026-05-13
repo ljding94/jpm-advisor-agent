@@ -37,4 +37,9 @@ class AgentFactory:
 
             return AnalystAgent(llm=llm, **config)
 
+        if role is AgentRole.REVIEWER:
+            from src.agents.reviewer import ReviewerAgent
+
+            return ReviewerAgent(llm=llm, **config)
+
         raise ValueError(f"unsupported agent role: {role}")

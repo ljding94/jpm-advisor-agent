@@ -48,7 +48,7 @@ def test_max_turns_alone_does_not_force_end_in_routing(david_profile):
 
 
 def test_routes_to_client(david_profile):
-    state = _state_with_last((AgentRole.ADVISOR, AgentRole.CLIENT), david_profile)
+    state = _state_with_last((AgentRole.REVIEWER, AgentRole.CLIENT), david_profile)
     assert route_next(state) == "client"
 
 
@@ -60,3 +60,13 @@ def test_routes_to_advisor(david_profile):
 def test_routes_to_analyst(david_profile):
     state = _state_with_last((AgentRole.ADVISOR, AgentRole.ANALYST), david_profile)
     assert route_next(state) == "analyst"
+
+
+def test_routes_to_reviewer(david_profile):
+    state = _state_with_last((AgentRole.ADVISOR, AgentRole.REVIEWER), david_profile)
+    assert route_next(state) == "reviewer"
+
+
+def test_routes_to_advisor_on_review_bounce(david_profile):
+    state = _state_with_last((AgentRole.REVIEWER, AgentRole.ADVISOR), david_profile)
+    assert route_next(state) == "advisor"

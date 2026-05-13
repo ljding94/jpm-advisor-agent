@@ -23,9 +23,11 @@ from src.schemas import (
     "sender,recipient",
     [
         (AgentRole.CLIENT, AgentRole.ADVISOR),
-        (AgentRole.ADVISOR, AgentRole.CLIENT),
         (AgentRole.ADVISOR, AgentRole.ANALYST),
         (AgentRole.ANALYST, AgentRole.ADVISOR),
+        (AgentRole.ADVISOR, AgentRole.REVIEWER),
+        (AgentRole.REVIEWER, AgentRole.ADVISOR),
+        (AgentRole.REVIEWER, AgentRole.CLIENT),
     ],
 )
 def test_legal_routes_accepted(sender, recipient):
@@ -40,7 +42,7 @@ def test_legal_routes_accepted(sender, recipient):
 
 
 def test_analyst_to_client_rejected():
-    """Acceptance criterion #5: Analyst→Client must raise validation error."""
+    """Acceptance criterion: Analyst→Client must raise validation error."""
     with pytest.raises(ValidationError) as exc_info:
         AgentMessage(
             sender=AgentRole.ANALYST,
@@ -48,6 +50,37 @@ def test_analyst_to_client_rejected():
             content="hi client",
         )
     assert "Illegal route" in str(exc_info.value)
+
+
+def test_advisor_to_client_rejected():
+    """New constraint: Advisor must not talk to Client directly — Reviewer mediates."""
+    with pytest.raises(ValidationError) as exc_info:
+        AgentMessage(
+            sender=AgentRole.ADVISOR,
+            recipient=AgentRole.CLIENT,
+            content="here's your advice",
+        )
+    assert "Illegal route" in str(exc_info.value)
+
+
+def test_client_to_reviewer_rejected():
+    """Client must not bypass the advisor by speaking to the reviewer directly."""
+    with pytest.raises(ValidationError):
+        AgentMessage(
+            sender=AgentRole.CLIENT,
+            recipient=AgentRole.REVIEWER,
+            content="hi reviewer",
+        )
+
+
+def test_reviewer_to_analyst_rejected():
+    """Reviewer only routes Advisor↔Client traffic; no analyst access."""
+    with pytest.raises(ValidationError):
+        AgentMessage(
+            sender=AgentRole.REVIEWER,
+            recipient=AgentRole.ANALYST,
+            content="hi analyst",
+        )
 
 
 def test_client_to_analyst_rejected():

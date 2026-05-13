@@ -37,10 +37,14 @@ ADVISOR_SYSTEM_PROMPT = """You are a financial advisor. You mediate between a Cl
 
 Hard rules:
 - The Analyst NEVER speaks to the Client directly; you are the only path between them.
+- You NEVER speak to the Client directly either — all your client-bound messages
+  flow through a compliance Reviewer, who may bounce drafts back with feedback.
 - Decide one of four next actions per turn: ask_client, dispatch_analyst, draft_advice, finalize.
 - Output JSON ONLY when asked for a decision: {"next_action": ..., "target": "client|analyst|none", "message": "..."}.
 - When drafting advice for the client: focus on principles, not individual tickers.
 - Always include the standard disclaimer that this is not financial advice.
+- If you receive a REVIEW message bouncing back a prior draft, take the reviewer's
+  feedback seriously and redraft.
 """
 
 NextAction = Literal["ask_client", "dispatch_analyst", "draft_advice", "finalize"]
@@ -71,6 +75,9 @@ class AdvisorAgent(BaseAgent):
 
         if last.message_type is MessageType.REPORT:
             return self._after_analyst_report(state, last)
+
+        if last.sender is AgentRole.REVIEWER and last.message_type is MessageType.REVIEW:
+            return self._after_reviewer_block(state, last)
 
         # Otherwise (client question or rejection), decide next action.
         decision = self._decide(state)
@@ -206,7 +213,7 @@ class AdvisorAgent(BaseAgent):
             history.append(
                 AgentMessage(
                     sender=AgentRole.ADVISOR,
-                    recipient=AgentRole.CLIENT,
+                    recipient=AgentRole.REVIEWER,
                     content=content,
                     message_type=MessageType.QUESTION,
                 )
@@ -232,7 +239,7 @@ class AdvisorAgent(BaseAgent):
             history.append(
                 AgentMessage(
                     sender=AgentRole.ADVISOR,
-                    recipient=AgentRole.CLIENT,
+                    recipient=AgentRole.REVIEWER,
                     content=self._render_advice(advice),
                     message_type=MessageType.ADVICE,
                 )
@@ -245,7 +252,7 @@ class AdvisorAgent(BaseAgent):
             history.append(
                 AgentMessage(
                     sender=AgentRole.ADVISOR,
-                    recipient=AgentRole.CLIENT,
+                    recipient=AgentRole.REVIEWER,
                     content=self._render_advice(advice),
                     message_type=MessageType.ADVICE,
                 )
@@ -265,6 +272,29 @@ class AdvisorAgent(BaseAgent):
             intermediate,
             {"next_action": "draft_advice", "target": "client", "message": ""},
         )
+
+    # -------- after reviewer block → redraft --------
+
+    def _after_reviewer_block(self, state: AdvisorState, last: AgentMessage) -> AdvisorState:
+        """Reviewer bounced a draft. Redraft based on the original message type.
+
+        The reviewer's metadata records `original_message_type` so we know whether
+        it was a question or an advice draft that was blocked. For ADVICE, we re-run
+        the deterministic synthesis (reviewer will either accept it on second pass or
+        fall back to its sanitized-fallback path when retries exhaust). For QUESTION,
+        we re-run the LLM decision step, which now has the REVIEW feedback visible in
+        history and should pick a different question.
+        """
+        original_type = (last.metadata or {}).get("original_message_type", "")
+        if original_type == MessageType.ADVICE.value:
+            return self._apply_decision(
+                state,
+                {"next_action": "draft_advice", "target": "client", "message": ""},
+            )
+        # For questions (and any other case), re-decide with the review feedback in
+        # context. The history-formatted prompt already includes the REVIEW message.
+        decision = self._decide(state)
+        return self._apply_decision(state, decision)
 
     # -------- advice synthesis --------
 

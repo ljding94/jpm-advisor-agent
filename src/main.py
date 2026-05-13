@@ -11,6 +11,7 @@ from typing import Any
 from src.agents.advisor import AdvisorAgent
 from src.agents.analyst import AnalystAgent
 from src.agents.client import ClientAgent
+from src.agents.reviewer import ReviewerAgent
 from src.graph.builder import build_graph
 from src.graph.state import ConversationStatus, initial_state
 from src.observability.logger import TurnLogger, export_transcript
@@ -70,6 +71,7 @@ def build_runtime(
     kb: KnowledgeStore | None = None,
     web: WebSearchProvider | None = None,
     client: ClientAgent | None = None,
+    reviewer: ReviewerAgent | None = None,
     verbose: bool = False,
     turn_logger: TurnLogger | None = None,
 ) -> dict[str, Any]:
@@ -92,15 +94,17 @@ def build_runtime(
     client = client or ClientAgent(profile=profile, llm=llm)
     advisor = AdvisorAgent(llm=llm)
     analyst = AnalystAgent(llm=llm, knowledge_store=kb, web_search=web)
+    reviewer = reviewer or ReviewerAgent(llm=llm)
     turn_logger = turn_logger or TurnLogger()
     graph = build_graph(
-        client=client, advisor=advisor, analyst=analyst,
+        client=client, advisor=advisor, analyst=analyst, reviewer=reviewer,
         verbose=verbose, turn_logger=turn_logger,
     )
     return {
         "client": client,
         "advisor": advisor,
         "analyst": analyst,
+        "reviewer": reviewer,
         "graph": graph,
         "turn_logger": turn_logger,
         "llm": llm,

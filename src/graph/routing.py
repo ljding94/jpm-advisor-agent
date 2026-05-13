@@ -6,7 +6,7 @@ from typing import Literal
 from src.graph.state import AdvisorState, ConversationStatus
 from src.schemas import AgentRole
 
-NextNode = Literal["client", "advisor", "analyst", "__end__"]
+NextNode = Literal["client", "advisor", "analyst", "reviewer", "__end__"]
 
 
 def route_next(state: AdvisorState) -> NextNode:
@@ -34,6 +34,8 @@ def route_next(state: AdvisorState) -> NextNode:
         return "analyst"
     if last.recipient is AgentRole.ADVISOR:
         return "advisor"
+    if last.recipient is AgentRole.REVIEWER:
+        return "reviewer"
     return "__end__"
 
 

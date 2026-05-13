@@ -33,7 +33,7 @@ def test_advisor_decide_returns_valid_action(david_profile, fake_llm):
     new_state = advisor.process(state)
     last = new_state["conversation_history"][-1]
     assert last.sender is AgentRole.ADVISOR
-    assert last.recipient is AgentRole.CLIENT
+    assert last.recipient is AgentRole.REVIEWER
     assert last.message_type is MessageType.QUESTION
     assert "time horizon" in last.content
 
@@ -90,7 +90,7 @@ def test_advisor_drafts_advice(david_profile, fake_llm):
     assert advice.recommendations
     assert any("not financial advice" in d.lower() for d in advice.disclaimers)
     last = new_state["conversation_history"][-1]
-    assert last.recipient is AgentRole.CLIENT
+    assert last.recipient is AgentRole.REVIEWER
     assert last.message_type is MessageType.ADVICE
     assert new_state["status"] is ConversationStatus.CONFIRM
 
@@ -114,11 +114,12 @@ def test_advisor_after_report_drafts_advice(david_profile, fake_llm):
         )
     )
     new_state = advisor.process(state)
-    # After receiving a REPORT, advisor immediately drafts advice for the client.
+    # After receiving a REPORT, advisor drafts advice destined for the reviewer
+    # (reviewer then forwards to the client after policy review).
     assert new_state["status"] is ConversationStatus.CONFIRM
     assert new_state["draft_advice"] is not None
     last = new_state["conversation_history"][-1]
-    assert last.recipient is AgentRole.CLIENT
+    assert last.recipient is AgentRole.REVIEWER
     assert last.message_type is MessageType.ADVICE
 
 
@@ -137,8 +138,8 @@ def test_advisor_decision_falls_back_when_llm_returns_garbage(david_profile, fak
     new_state = advisor.process(state)
     last = new_state["conversation_history"][-1]
     assert last.sender is AgentRole.ADVISOR
-    # default fallback during GATHER_PROFILE → ask_client
-    assert last.recipient is AgentRole.CLIENT
+    # default fallback during GATHER_PROFILE → ask_client → routed via reviewer.
+    assert last.recipient is AgentRole.REVIEWER
 
 
 def test_advisor_no_op_when_not_addressed(david_profile, fake_llm):
@@ -147,7 +148,7 @@ def test_advisor_no_op_when_not_addressed(david_profile, fake_llm):
     state["conversation_history"].append(
         AgentMessage(
             sender=AgentRole.ADVISOR,
-            recipient=AgentRole.CLIENT,
+            recipient=AgentRole.REVIEWER,
             content="...",
             message_type=MessageType.QUESTION,
         )

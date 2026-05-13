@@ -7,6 +7,7 @@ from pathlib import Path
 from src.agents.advisor import AdvisorAgent
 from src.agents.analyst import AnalystAgent
 from src.agents.client import ClientAgent
+from src.agents.reviewer import ReviewerAgent
 from src.graph.builder import build_graph
 from src.graph.state import ConversationStatus, initial_state
 from src.guardrails.limits import MAX_TOTAL_COST_USD
@@ -38,18 +39,21 @@ def test_turn_logger_records_each_node_call(david_profile):
     client = ClientAgent(profile=david_profile, llm=llm)
     advisor = AdvisorAgent(llm=llm)
     analyst = AnalystAgent(llm=llm, knowledge_store=None, web_search=FakeWebSearchProvider())
+    reviewer = ReviewerAgent(llm=llm)
 
     log = TurnLogger()
     state = initial_state(david_profile)
     state = client.open_conversation(state)
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst, turn_logger=log)
+    graph = build_graph(
+        client=client, advisor=advisor, analyst=analyst, reviewer=reviewer, turn_logger=log
+    )
     final = graph.invoke(state, config={"recursion_limit": 50})
 
     assert final["status"] is ConversationStatus.RESOLVED
     assert log.records, "TurnLogger should have recorded at least one turn"
     # Every record has the structured-JSON fields the spec required.
     for r in log.records:
-        assert r.agent in {"advisor", "analyst", "client"}
+        assert r.agent in {"advisor", "analyst", "client", "reviewer"}
         assert r.action  # non-empty
         assert r.duration_ms >= 0
         assert r.input_tokens >= 0
@@ -65,8 +69,11 @@ def test_jsonl_export_round_trips(tmp_path: Path, david_profile):
     client = ClientAgent(profile=david_profile, llm=llm)
     advisor = AdvisorAgent(llm=llm)
     analyst = AnalystAgent(llm=llm, knowledge_store=None, web_search=FakeWebSearchProvider())
+    reviewer = ReviewerAgent(llm=llm)
     log = TurnLogger()
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst, turn_logger=log)
+    graph = build_graph(
+        client=client, advisor=advisor, analyst=analyst, reviewer=reviewer, turn_logger=log
+    )
     state = client.open_conversation(initial_state(david_profile))
     graph.invoke(state, config={"recursion_limit": 50})
 
@@ -85,10 +92,13 @@ def test_cost_limit_trips_termination(david_profile):
     analyst = AnalystAgent(
         llm=expensive_llm, knowledge_store=None, web_search=FakeWebSearchProvider()
     )
+    reviewer = ReviewerAgent(llm=expensive_llm)
 
     log = TurnLogger()
     state = client.open_conversation(initial_state(david_profile))
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst, turn_logger=log)
+    graph = build_graph(
+        client=client, advisor=advisor, analyst=analyst, reviewer=reviewer, turn_logger=log
+    )
     final = graph.invoke(state, config={"recursion_limit": 50})
 
     assert final["status"] is ConversationStatus.TERMINATED
@@ -102,7 +112,8 @@ def test_runtime_runs_without_logger(david_profile):
     client = ClientAgent(profile=david_profile, llm=llm)
     advisor = AdvisorAgent(llm=llm)
     analyst = AnalystAgent(llm=llm, knowledge_store=None, web_search=FakeWebSearchProvider())
+    reviewer = ReviewerAgent(llm=llm)
     state = client.open_conversation(initial_state(david_profile))
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst)
+    graph = build_graph(client=client, advisor=advisor, analyst=analyst, reviewer=reviewer)
     final = graph.invoke(state, config={"recursion_limit": 50})
     assert final["status"] is ConversationStatus.RESOLVED

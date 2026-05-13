@@ -11,6 +11,7 @@ from src.agents.advisor import AdvisorAgent
 from src.agents.analyst import AnalystAgent
 from src.agents.base import BaseAgent
 from src.agents.client import ClientAgent
+from src.agents.reviewer import ReviewerAgent
 from src.graph.routing import route_next
 from src.graph.state import AdvisorState, ConversationStatus, append_error
 from src.guardrails.limits import LimitState, check_limits
@@ -103,6 +104,7 @@ def build_graph(
     client: ClientAgent,
     advisor: AdvisorAgent,
     analyst: AnalystAgent,
+    reviewer: ReviewerAgent,
     *,
     verbose: bool = False,
     turn_logger: TurnLogger | None = None,
@@ -121,6 +123,10 @@ def build_graph(
         "analyst",
         _wrap_node(analyst, label="analyst", verbose=verbose, turn_logger=turn_logger),
     )
+    graph.add_node(
+        "reviewer",
+        _wrap_node(reviewer, label="reviewer", verbose=verbose, turn_logger=turn_logger),
+    )
 
     graph.set_entry_point("advisor")
 
@@ -128,9 +134,10 @@ def build_graph(
         "client": "client",
         "advisor": "advisor",
         "analyst": "analyst",
+        "reviewer": "reviewer",
         "__end__": END,
     }
-    for node in ("client", "advisor", "analyst"):
+    for node in ("client", "advisor", "analyst", "reviewer"):
         graph.add_conditional_edges(node, route_next, cond_map)
 
     return graph.compile()

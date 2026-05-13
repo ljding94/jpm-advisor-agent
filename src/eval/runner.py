@@ -11,6 +11,7 @@ from typing import Any
 from src.agents.advisor import AdvisorAgent
 from src.agents.analyst import AnalystAgent
 from src.agents.client import ClientAgent
+from src.agents.reviewer import ReviewerAgent
 from src.eval.deterministic import run_all_checks
 from src.eval.judge import JudgeResult, LLMJudge
 from src.graph.builder import build_graph
@@ -82,7 +83,8 @@ def _build_runtime(
     client = ClientAgent(profile=profile, llm=llm)
     advisor = AdvisorAgent(llm=llm)
     analyst = AnalystAgent(llm=llm, knowledge_store=kb, web_search=web)
-    return client, advisor, analyst
+    reviewer = ReviewerAgent(llm=llm)
+    return client, advisor, analyst, reviewer
 
 
 def _serialize_history(state: AdvisorState) -> list[dict]:
@@ -115,12 +117,12 @@ def run_one(
     web = web or DDGSearchProvider()
     if kb is None:
         kb = _build_kb_or_none()
-    client, advisor, analyst = _build_runtime(profile, llm=llm, web=web, kb=kb)
+    client, advisor, analyst, reviewer = _build_runtime(profile, llm=llm, web=web, kb=kb)
 
     state = initial_state(profile)
     state = client.open_conversation(state)
     turn_logger = TurnLogger()
-    graph = build_graph(client=client, advisor=advisor, analyst=analyst,
+    graph = build_graph(client=client, advisor=advisor, analyst=analyst, reviewer=reviewer,
                         verbose=False, turn_logger=turn_logger)
     final = graph.invoke(state, config={"recursion_limit": recursion_limit})
 

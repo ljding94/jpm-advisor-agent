@@ -12,6 +12,7 @@ class AgentRole(str, Enum):
     CLIENT = "client"
     ADVISOR = "advisor"
     ANALYST = "analyst"
+    REVIEWER = "reviewer"
     SYSTEM = "system"
 
 
@@ -22,18 +23,27 @@ class MessageType(str, Enum):
     REPORT = "report"
     ADVICE = "advice"
     CONFIRMATION = "confirmation"
+    REVIEW = "review"
     SYSTEM = "system"
 
 
-# Allowed (sender, recipient) pairs. Analyst MUST NOT talk to Client directly.
+# Allowed (sender, recipient) pairs.
+# Hard constraints enforced at the schema layer:
+#   - Analyst MUST NOT talk to Client directly (Advisor mediates).
+#   - Advisor MUST NOT talk to Client directly (Reviewer mediates outbound traffic).
+#   - All Advisor→Client traffic flows: ADVISOR → REVIEWER → CLIENT.
+#   - Reviewer can bounce content back to Advisor with feedback.
 ALLOWED_ROUTES: frozenset[tuple[AgentRole, AgentRole]] = frozenset({
     (AgentRole.CLIENT, AgentRole.ADVISOR),
-    (AgentRole.ADVISOR, AgentRole.CLIENT),
     (AgentRole.ADVISOR, AgentRole.ANALYST),
     (AgentRole.ANALYST, AgentRole.ADVISOR),
+    (AgentRole.ADVISOR, AgentRole.REVIEWER),
+    (AgentRole.REVIEWER, AgentRole.ADVISOR),
+    (AgentRole.REVIEWER, AgentRole.CLIENT),
     (AgentRole.SYSTEM, AgentRole.CLIENT),
     (AgentRole.SYSTEM, AgentRole.ADVISOR),
     (AgentRole.SYSTEM, AgentRole.ANALYST),
+    (AgentRole.SYSTEM, AgentRole.REVIEWER),
 })
 
 
@@ -50,6 +60,7 @@ class AgentMessage(BaseModel):
         if (self.sender, self.recipient) not in ALLOWED_ROUTES:
             raise ValueError(
                 f"Illegal route {self.sender.value} -> {self.recipient.value}. "
-                "Analyst must not communicate with Client directly."
+                "Advisor and Analyst must not communicate with Client directly; "
+                "all outbound traffic to Client flows through the Reviewer."
             )
         return self

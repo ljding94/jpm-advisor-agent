@@ -19,7 +19,7 @@ def test_client_answers_advisor_question(david_profile, fake_llm):
     state = initial_state(david_profile)
     state["conversation_history"].append(
         AgentMessage(
-            sender=AgentRole.ADVISOR,
+            sender=AgentRole.REVIEWER,
             recipient=AgentRole.CLIENT,
             content="What are your top financial goals?",
             message_type=MessageType.QUESTION,
@@ -39,7 +39,7 @@ def test_client_confirms_advice_resolves_state(david_profile, fake_llm):
     state = initial_state(david_profile)
     state["conversation_history"].append(
         AgentMessage(
-            sender=AgentRole.ADVISOR,
+            sender=AgentRole.REVIEWER,
             recipient=AgentRole.CLIENT,
             content="Recommendation: 60/30/10 stocks/bonds/cash.",
             message_type=MessageType.ADVICE,
@@ -56,7 +56,7 @@ def test_client_rejects_advice_loops_back(david_profile, fake_llm):
     state = initial_state(david_profile)
     state["conversation_history"].append(
         AgentMessage(
-            sender=AgentRole.ADVISOR,
+            sender=AgentRole.REVIEWER,
             recipient=AgentRole.CLIENT,
             content="Recommendation: 95% equities.",
             message_type=MessageType.ADVICE,

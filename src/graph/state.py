@@ -27,6 +27,8 @@ class AdvisorState(TypedDict, total=False):
     turn_count: int
     errors: list[str]
     termination_reason: Optional[str]
+    reviewer_retries: int
+    last_review: Optional[dict]
 
 
 def initial_state(profile: ClientProfile) -> AdvisorState:
@@ -40,6 +42,8 @@ def initial_state(profile: ClientProfile) -> AdvisorState:
         turn_count=0,
         errors=[],
         termination_reason=None,
+        reviewer_retries=0,
+        last_review=None,
     )
 
 
