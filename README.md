@@ -409,3 +409,35 @@ Set a hard credit cap on the OpenRouter key in the dashboard (e.g.
 $30/mo). The runtime also enforces `MAX_TOTAL_COST_USD=$2.00` per
 conversation. Worst case for an open demo is the credit cap getting hit;
 further requests fail fast until the cap resets.
+
+## LangGraph idiomaticization TODOs
+
+`src/graph/builder.py` uses LangGraph minimally — as a typed state-machine
+kernel with conditional edges and a recipient-driven router. That choice
+is deliberate (it keeps the spec's hard routing constraint enforceable in
+plain Python), but four refactors would make it more conventional without
+changing behavior:
+
+- **Use a reducer for `conversation_history`.** Today each agent's
+  `process()` returns a full updated state including the entire
+  conversation list (e.g. `src/agents/client.py:89-92`). Annotating the
+  field as `Annotated[list[AgentMessage], add]` in `AdvisorState`, or
+  using LangGraph's `add_messages` reducer, would let agents return
+  `{"conversation_history": [new_msg]}` deltas. Less boilerplate, no
+  risk of an agent accidentally dropping prior history.
+- **Make the Analyst a subgraph.** `AnalystAgent.research()` is a fixed
+  pipeline (KB → maybe-web → synthesize) with one LLM call. Compiling
+  it as its own subgraph with a ReAct-style tool loop would let the LLM
+  pick which retrieval to run and when to stop — trading determinism
+  for flexibility. The outer graph wouldn't change; just register the
+  compiled subgraph as the `analyst` node.
+- **Use `interrupt()` for human-in-loop.** `HumanClientAgent` (see
+  `src/ui/human_client.py`) blocks the graph thread on a `queue.Queue`
+  while the Streamlit thread babysits the prompts. LangGraph's
+  `interrupt(...)` + `Command(resume=...)` is the idiomatic primitive:
+  the graph pauses cleanly, state persists via a checkpointer, and
+  resumes on the next invocation with the user's reply. Removes the
+  thread-coordination hack.
+- **Add a `checkpointer` to `graph.compile()`.** Already noted in
+  *Future work* above for cross-run persistence; pairs naturally with
+  `interrupt()` so a paused conversation survives a process restart.
